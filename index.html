@@ -2066,7 +2066,7 @@ async function handleExcelFile(file){
         if(res && res.ok){
           setDataStatus(true, DATA_SOURCE_LABEL + ' — تم نشرها لكل من يفتح هذا الرابط ✅');
         } else if(res && res.reason === 'NO_PAT'){
-          setDataStatus(true, DATA_SOURCE_LABEL + ' (محدَّث هنا فقط — لم يتم إدخال مفتاح النشر)');
+          setDataStatus(true, DATA_SOURCE_LABEL + ' (محدَّث هنا فقط — لم يتم إدخال كلمة السر)');
         } else if(res){
           setDataStatus(true, DATA_SOURCE_LABEL + ' (محدَّث هنا فقط — فشل النشر: ' + (res.reason||'') + ')');
           console.warn('[github-publish] failed:', res);
@@ -2135,6 +2135,9 @@ const GITHUB_PAGES_SYNC = {
   repo: 'fleet-dashboard',
   branch: 'main',
   path: 'data.json',
+  // Publish relay (Cloudflare Worker). When set, colleagues publish with a team
+  // passcode only (no GitHub account / token). Leave '' to use the token flow.
+  publishEndpoint: 'https://fragrant-cloud-7293.eng-elkholy09.workers.dev',
 };
 
 async function hydrateFromDataJson(){
@@ -2162,8 +2165,44 @@ async function hydrateFromDataJson(){
   }
 }
 
+async function publishViaRelay(file){
+  const cfg = GITHUB_PAGES_SYNC;
+  let who = localStorage.getItem('fleet_publisher_name');
+  if(!who){
+    try{ who = (window.prompt('اسمك (يظهر للباقي كآخر من حدّث البيانات):', '') || '').trim(); }catch(e){}
+    who = who || 'مستخدم';
+    localStorage.setItem('fleet_publisher_name', who);
+  }
+  const send = async (pass)=>{
+    const res = await fetch(cfg.publishEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ passcode: pass || '', data: {
+        cars: CARS, report: REPORT, source_label: DATA_SOURCE_LABEL, updated_by: who } })
+    });
+    const j = await res.json().catch(()=>({}));
+    return { res, j };
+  };
+  try{
+    let pass = localStorage.getItem('fleet_team_passcode') || '';
+    let { res, j } = await send(pass);
+    if(!(res.ok && j.ok) && (j.reason === 'NEEDS_PASSCODE' || j.reason === 'BAD_PASSCODE')){
+      localStorage.removeItem('fleet_team_passcode');
+      pass = window.prompt('النشر محمي بكلمة سر. اكتبها لنشر التحديث للجميع (أو اتركها فارغة لعرض التحديث عندك فقط):') || '';
+      if(!pass) return { ok:false, reason:'NO_PAT' };
+      ({ res, j } = await send(pass));
+      if(res.ok && j.ok) localStorage.setItem('fleet_team_passcode', pass);
+    }
+    if(res.ok && j.ok) return { ok:true };
+    return { ok:false, reason: j.reason || ('HTTP_' + res.status) };
+  }catch(e){
+    return { ok:false, reason:'ERROR', message: e && e.message };
+  }
+}
+
 async function publishToGitHub(file){
   const cfg = GITHUB_PAGES_SYNC;
+  if(cfg.publishEndpoint) return publishViaRelay(file);
   let pat = localStorage.getItem('gh_publish_pat');
   if(!pat){
     pat = window.prompt(
