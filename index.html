@@ -2160,7 +2160,7 @@ async function hydrateFromDataJson(){
 
 async function publishToGitHub(file){
   const cfg = GITHUB_PAGES_SYNC;
-  let pat = sessionStorage.getItem('gh_publish_pat');
+  let pat = localStorage.getItem('gh_publish_pat');
   if(!pat){
     pat = window.prompt(
       'لنشر هذا التحديث لكل من يفتح هذا الرابط، الصق GitHub Personal Access Token ' +
@@ -2168,7 +2168,7 @@ async function publishToGitHub(file){
       'هيُحفظ مؤقتًا في هذا المتصفح فقط طول الجلسة. اتركه فارغًا لتجاهل النشر والاكتفاء بعرض محلي.'
     );
     if(!pat) return { ok:false, reason:'NO_PAT' };
-    sessionStorage.setItem('gh_publish_pat', pat);
+    localStorage.setItem('gh_publish_pat', pat);
   }
   try{
     const apiBase = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`;
@@ -2178,7 +2178,7 @@ async function publishToGitHub(file){
     });
     if(getRes.ok){ const j = await getRes.json(); sha = j.sha; }
     else if(getRes.status === 401 || getRes.status === 403){
-      sessionStorage.removeItem('gh_publish_pat');
+      localStorage.removeItem('gh_publish_pat');
       return { ok:false, reason:'AUTH_' + getRes.status };
     }
 
@@ -2209,7 +2209,7 @@ async function publishToGitHub(file){
       })
     });
     if(!putRes.ok){
-      if(putRes.status === 401 || putRes.status === 403) sessionStorage.removeItem('gh_publish_pat');
+      if(putRes.status === 401 || putRes.status === 403) localStorage.removeItem('gh_publish_pat');
       const text = await putRes.text().catch(()=> '');
       return { ok:false, reason: 'HTTP_' + putRes.status, message: text };
     }
