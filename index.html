@@ -1694,45 +1694,91 @@ tableBtn.addEventListener('click', ()=>{
 });
 
 /* ================= ALERTS TAB ================= */
+function alertDetailFor(key, c){
+  switch(key){
+    case 'insurance_missing': return 'لا توجد بيانات تأمين';
+    case 'license_expired': case 'license_soon': return 'الرخصة: ' + c.__license.label;
+    case 'auth_expired': case 'auth_soon': return 'التفويض: ' + c.__auth.label;
+    case 'no_inspection': return 'لا يوجد فحص دوري مسجل';
+    case 'no_driver': return 'لا يوجد سائق مستلم حاليًا';
+    case 'no_maint': return 'لا يوجد سجل صيانة';
+    case 'has_accidents': return c.accidents_count + (c.accidents_count===1 ? ' حادث مسجل' : ' حوادث مسجلة');
+    case 'no_tracking': return 'لا يوجد جهاز تتبع';
+    case 'unpaid_invoices': return 'فواتير غير مدفوعة/غير معروفة: ' + c.invoices.filter(i=>invoicePaymentClass(i)!=='paid').length;
+    default: return '';
+  }
+}
+function buildAlertGroups(scope){
+  return [
+    {key:'insurance_missing', lvl:'danger', title:'بدون بيانات تأمين', list: scope.filter(c=>c.__insurance.level==='danger')},
+    {key:'license_expired', lvl:'danger', title:'رخصة سير منتهية', list: scope.filter(c=>c.__license.level==='danger')},
+    {key:'license_soon', lvl:'warn', title:'رخصة سير قريبة الانتهاء', list: scope.filter(c=>c.__license.level==='warn')},
+    {key:'auth_expired', lvl:'danger', title:'تفويض منتهي', list: scope.filter(c=>c.__auth.level==='danger')},
+    {key:'auth_soon', lvl:'warn', title:'تفويض قريب الانتهاء', list: scope.filter(c=>c.__auth.level==='warn')},
+    {key:'has_accidents', lvl:'danger', title:'لديها حوادث مسجلة', list: scope.filter(c=>c.accidents_count>0)},
+    {key:'no_driver', lvl:'warn', title:'بدون سائق مستلم', list: scope.filter(c=>!c.driver)},
+    {key:'no_tracking', lvl:'warn', title:'بدون جهاز تتبع', list: scope.filter(c=>c.no_tracking)},
+    {key:'unpaid_invoices', lvl:'warn', title:'لديها فواتير غير مدفوعة', list: scope.filter(vehicleHasUnpaidOrUnknownInvoice)},
+    {key:'no_inspection', lvl:'info', title:'بدون فحص دوري مسجل', list: scope.filter(c=>!c.inspections || c.inspections.length===0)},
+    {key:'no_maint', lvl:'info', title:'بدون سجل صيانة', list: scope.filter(c=>c.maintenance_count===0)},
+  ];
+}
+function exportAlertsToExcel(){
+  const groups = buildAlertGroups(getFilteredCars());
+  const rows = [];
+  groups.forEach(g=>g.list.forEach(c=>rows.push({
+    'نوع التنبيه': g.title, 'رقم اللوحة': c.plate||'', 'الماركة': c.make||'', 'الموديل': c.model||'',
+    'السائق': c.driver||'', 'المشروع': c.project||'', 'التفاصيل': alertDetailFor(g.key, c)
+  })));
+  if(!rows.length){ alert('لا توجد تنبيهات للتصدير.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:26},{wch:14},{wch:12},{wch:14},{wch:22},{wch:34},{wch:46}];
+  const wb = XLSX.utils.book_new(); wb.Workbook = { Views:[{RTL:true}] };
+  XLSX.utils.book_append_sheet(wb, ws, 'التنبيهات');
+  XLSX.writeFile(wb, 'fleet_alerts_' + fmtGregShort(new Date()) + '.xlsx');
+}
 function renderAlerts(){
   const cont = document.getElementById('alertsContainer');
   const statusBar = document.getElementById('alertsFilterStatus');
   if(statusBar) statusBar.innerHTML = activeFilterStatusHtml();
   const scope = getFilteredCars();
-  const groups = [
-    {key:'insurance_missing', title:'🔴 بدون بيانات تأمين', list: scope.filter(c=>c.__insurance.level==='danger')},
-    {key:'license_expired', title:'🔴 رخصة سير منتهية', list: scope.filter(c=>c.__license.level==='danger')},
-    {key:'license_soon', title:'🟠 رخصة سير قريبة الانتهاء', list: scope.filter(c=>c.__license.level==='warn')},
-    {key:'auth_expired', title:'🔴 تفويض منتهي', list: scope.filter(c=>c.__auth.level==='danger')},
-    {key:'auth_soon', title:'🟠 تفويض قريب الانتهاء', list: scope.filter(c=>c.__auth.level==='warn')},
-    {key:'no_inspection', title:'⚪ بدون فحص دوري مسجل', list: scope.filter(c=>!c.inspections || c.inspections.length===0)},
-    {key:'no_driver', title:'🟠 بدون سائق مستلم', list: scope.filter(c=>!c.driver)},
-    {key:'no_maint', title:'⚪ بدون سجل صيانة', list: scope.filter(c=>c.maintenance_count===0)},
-    {key:'has_accidents', title:'🔴 لديها حوادث مسجلة', list: scope.filter(c=>c.accidents_count>0)},
-    {key:'no_tracking', title:'🟠 بدون جهاز تتبع', list: scope.filter(c=>c.no_tracking)},
-    {key:'unpaid_invoices', title:'🟠 لديها فواتير غير مدفوعة', list: scope.filter(vehicleHasUnpaidOrUnknownInvoice)},
-  ];
-  cont.innerHTML = groups.map(g=>`
-    <div class="alert-group">
-      <h3>${g.title} <span style="color:var(--muted); font-weight:400; font-size:12.5px;">(${g.list.length})</span></h3>
+  const groups = buildAlertGroups(scope);
+  const icon = l => l==='danger' ? '🔴' : l==='warn' ? '🟠' : '⚪';
+  const active = groups.filter(g=>g.list.length>0), empty = groups.filter(g=>g.list.length===0);
+  const summary = active.map(g=>`<a href="#alertgrp_${g.key}" class="chip ${g.lvl==='danger'?'danger':g.lvl==='warn'?'warn':'info'}" style="text-decoration:none;" data-jump="${g.key}">${icon(g.lvl)} ${g.title}: <b>${g.list.length}</b></a>`).join('');
+  cont.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; max-width:1000px;">
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">${summary || '<span class="empty-note">لا توجد تنبيهات 🎉</span>'}</div>
+      <button class="clear-btn" id="exportAlertsBtn">📥 تصدير التنبيهات إلى إكسيل</button>
+    </div>` +
+    active.map(g=>`
+    <details class="alert-group" id="alertgrp_${g.key}" ${g.lvl!=='info' ? 'open' : ''} style="max-width:1000px;">
+      <summary style="cursor:pointer; font-weight:700; padding:8px 0; font-size:15px;">${icon(g.lvl)} ${g.title} <span style="color:var(--muted); font-weight:400; font-size:12.5px;">(${g.list.length})</span></summary>
       <div class="alert-list">
-        ${g.list.length===0 ? `<div class="empty-note">لا توجد مركبات ضمن هذا التصنيف</div>` :
-          g.list.map(c=>`
-            <div class="alert-item" data-idx="${c.__idx}">
-              <div class="at-left">
-                <span class="plate-tag" style="font-size:11px; padding:3px 8px;">${esc(c.plate)}</span>
-                <div>
-                  <div class="at-plate">${esc(c.make)} ${esc(c.model)} ${c.driver? '· '+esc(c.driver):''}</div>
-                  <div class="at-detail">${esc(c.project)||''}</div>
-                </div>
+        ${g.list.map(c=>`
+          <div class="alert-item ${g.lvl==='danger'?'danger':''}" data-idx="${c.__idx}">
+            <div class="at-left">
+              <span class="plate-tag" style="font-size:11px; padding:3px 8px;">${esc(c.plate)}</span>
+              <div>
+                <div class="at-plate">${esc(c.make)} ${esc(c.model)} ${c.driver? '· '+esc(c.driver):''}</div>
+                <div class="at-detail" style="color:var(--text); font-weight:600;">${esc(alertDetailFor(g.key, c))}</div>
+                <div class="at-detail">${esc(c.project)||''}</div>
               </div>
-            </div>`).join('')}
+            </div>
+          </div>`).join('')}
       </div>
-    </div>`).join('');
+    </details>`).join('') +
+    (empty.length ? `<div class="empty-note" style="max-width:1000px; margin-top:12px;">✅ لا توجد حالات في: ${empty.map(g=>esc(g.title)).join('، ')}</div>` : '');
   cont.querySelectorAll('.alert-item').forEach(el=>el.addEventListener('click', ()=>{
     document.querySelector('.tab-btn[data-tab="fleet"]').click();
     setTimeout(()=>openModal(parseInt(el.dataset.idx)), 0);
   }));
+  cont.querySelectorAll('[data-jump]').forEach(a=>a.addEventListener('click', ev=>{
+    ev.preventDefault();
+    const d = document.getElementById('alertgrp_'+a.dataset.jump);
+    if(d){ d.open = true; d.scrollIntoView({behavior:'smooth', block:'start'}); }
+  }));
+  const eb = document.getElementById('exportAlertsBtn'); if(eb) eb.addEventListener('click', exportAlertsToExcel);
 }
 
 /* ================= ANALYTICS TAB ================= */
