@@ -1018,7 +1018,7 @@ function buildDashboardData(workbook){
 <script>
 let CARS = [];
 let REPORT = null;
-const TODAY = new Date("2026-09-08");
+const TODAY = (()=>{ const n=new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); })();
 
 function esc(s){ return (s==null?'':s.toString()).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtMoney(n){ return n==null? '—' : Number(n).toLocaleString('ar-SA')+' ريال'; }
@@ -1128,7 +1128,7 @@ function renderOverview(){
     {num:total, lbl:'إجمالي المركبات', icon:'🚘', cls:'c-primary', filters:null},
     {num:withDriver, lbl:'المركبات المستلمة', icon:'🧑‍✈️', cls:'c-ok', filters:{driver:'has'}},
     {num:noDriver, lbl:'بدون مستلم', icon:'❓', cls:'c-warn', filters:{driver:'none'}},
-    {num:needsAction, lbl:'تحتاج إجراء', icon:'⚠️', cls:'c-danger', filters:null, tab:'alerts'},
+    {num:needsAction, lbl:'وثائق واستلام تحتاج إجراء', icon:'⚠️', cls:'c-danger', filters:null, tab:'alerts'},
     {num:totalMaint, lbl:'عدد عمليات الصيانة', icon:'🛠️', cls:'c-primary', filters:{maint:'has'}},
     {num:totalAcc, lbl:'عدد الحوادث', icon:'💥', cls:'c-danger', filters:{accidents:'has'}},
     {num:inspected, lbl:'خضعت للفحص الدوري', icon:'🔍', cls:'c-ok', filters:null},
@@ -1240,7 +1240,7 @@ function renderTopPriorityVehicles(scope){
   const ranked = getTopPriorityVehicles(scope, 10);
   const allActionableCount = scope.filter(c=>priorityScore(c).score>0).length;
   const hasFilters = hasActiveFilters();
-  const captionText = `${allActionableCount} مركبة تحتاج إجراء من أصل ${scope.length} مركبة${hasFilters ? ' مفلترة' : ' (الأسطول بالكامل)'}${allActionableCount>10 ? ' — يُعرض أعلى 10' : ''}`;
+  const captionText = `${allActionableCount} مركبة لديها ملاحظات (وثائق، استلام، تتبع، حوادث) من أصل ${scope.length} مركبة${hasFilters ? ' مفلترة' : ' (الأسطول بالكامل)'}${allActionableCount>10 ? ' — يُعرض أعلى 10' : ''}`;
   const caption = `<div class="empty-note" style="margin-bottom:10px;">${esc(captionText)}</div>`;
   if(ranked.length===0){
     box.innerHTML = caption + `<div class="empty-note">لا توجد مركبات تحتاج متابعة عاجلة ضمن النطاق الحالي 🎉</div>`;
@@ -1252,7 +1252,7 @@ function renderTopPriorityVehicles(scope){
         <span class="plate-tag" style="font-size:11px; padding:3px 8px;">${esc(c.plate)}</span>
         <div>
           <div class="at-plate">${esc(c.make)} ${esc(c.model)} ${c.project? '· '+esc(c.project):''}</div>
-          <div class="at-detail">${reasons.map(r=>esc(r.txt)).join(' • ')}</div>
+          <div class="at-detail" style="display:flex;flex-wrap:wrap;gap:4px;margin:4px 0;">${reasons.map(r=>`<span class="chip ${r.lvl==='danger'?'danger':'warn'}">${r.lvl==='danger'?'🔴':'🟠'} ${esc(r.txt)}</span>`).join('')}</div>
           <div class="at-detail" style="color:var(--primary);">${reasons.map(r=>recommendedActionFor(r.txt)).filter(Boolean).map(a=>'الإجراء: '+esc(a)).join(' • ')}</div>
         </div>
       </div>
