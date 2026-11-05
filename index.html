@@ -73,6 +73,14 @@ button{font-family:inherit;}
 .onedrive-history table{width:100%; border-collapse:collapse;}
 .onedrive-history th{text-align:right; color:var(--muted); padding:6px; font-weight:600; border-bottom:1px solid var(--border);}
 .onedrive-history td{padding:6px; border-bottom:1px solid var(--border);}
+@media print{
+  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
+  body{background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
+  .topbar{position:static !important; box-shadow:none !important;}
+  .page{max-width:none; padding:8px 0;}
+  .kpi, .alert-item, .chart-card, .report-box{break-inside:avoid; page-break-inside:avoid;}
+  .tab-pane{break-before:auto;}
+}
 @media (max-width:720px){
   .onedrive-bar{padding:8px 16px;}
   .onedrive-history{padding:12px 16px;}
@@ -307,7 +315,11 @@ tbody tr:hover{background:var(--surface2);}
 
   <!-- ===== OVERVIEW TAB ===== -->
   <div class="tab-pane" id="tab-overview">
-    <h2 class="page-title">نظرة عامة على الأسطول</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+      <h2 class="page-title" style="margin:0;">نظرة عامة على الأسطول</h2>
+      <button class="clear-btn" id="printBtn" title="طباعة الصفحة الحالية أو حفظها PDF (تاريخ التقرير يظهر تلقائيًا)">🖨️ طباعة / PDF</button>
+    </div>
+    <div id="printDate" style="display:none;"></div>
     <p class="page-desc">ملخص فوري لحالة جميع المركبات المسجلة، محسوب مباشرة من البيانات الفعلية.</p>
     <div id="overviewFilterStatus"></div>
     <div class="kpi-grid" id="kpiGrid"></div>
@@ -2183,6 +2195,12 @@ async function handleExcelFile(file){
   }
 }
 
+document.getElementById('printBtn').addEventListener('click', ()=>{
+  const old = document.title;
+  document.title = 'تقرير الأسطول - ' + fmtGregShort(new Date());
+  window.print();
+  setTimeout(()=>{ document.title = old; }, 500);
+});
 function refreshUndoBtn(){
   const b = document.getElementById('undoUpdateBtn'); if(!b) return;
   let has = false; try{ has = !!localStorage.getItem('fleet_prev_snapshot'); }catch(e){}
