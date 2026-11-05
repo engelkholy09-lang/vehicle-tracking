@@ -1816,8 +1816,6 @@ function renderAnalytics(){
 
   const grid = document.getElementById('analyticsGrid');
   let html = '';
-  html += barChart('توزيع المركبات حسب الموقع', byLocation);
-  html += `<div class="empty-note" style="grid-column:1/-1; margin-top:-6px;">ملاحظة: الموقع هنا مأخوذ من الكشوف التي ظهرت فيها المركبة في ملف الإكسيل، وليس موقعًا فعليًا؛ لذلك قد تُحتسب السيارة في أكثر من بند ويكون المجموع أكبر من عدد المركبات.</div>`;
   html += barChart('توزيع المركبات حسب الماركة', byMake);
   html += barChart('توزيع المركبات حسب المشروع (أعلى 10)', byProject);
   html += costByCar.length ? barChart('أعلى المركبات تكلفة في الصيانة (ريال)', costByCar) :
