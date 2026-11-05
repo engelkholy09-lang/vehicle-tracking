@@ -74,7 +74,7 @@ button{font-family:inherit;}
 .onedrive-history th{text-align:right; color:var(--muted); padding:6px; font-weight:600; border-bottom:1px solid var(--border);}
 .onedrive-history td{padding:6px; border-bottom:1px solid var(--border);}
 @media print{
-  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
+  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
   body{background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
   .topbar{position:static !important; box-shadow:none !important;}
   .page{max-width:none; padding:8px 0;}
@@ -311,6 +311,13 @@ tbody tr:hover{background:var(--surface2);}
 </div>
 <div id="odHistoryPanel" class="onedrive-history" style="display:none;"></div>
 
+<div id="activeFilterBanner" style="display:none; position:sticky; z-index:40; background:#fff7e6; border-bottom:1px solid #f5c26b; padding:10px 28px; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:14px;">
+  <span id="activeFilterText"></span>
+  <span style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button class="clear-btn" id="bannerClearBtn" style="background:#d97706;color:#fff;border-color:#d97706;">✖ إلغاء الفلتر</button>
+    <button class="clear-btn" id="bannerHomeBtn">🏠 رجوع للرئيسية</button>
+  </span>
+</div>
 <div class="page">
 
   <!-- ===== OVERVIEW TAB ===== -->
@@ -1555,7 +1562,25 @@ function applyGlobalFilters(){
   applyFleet();
   renderOverview();
   renderCurrentTab();
+  updateFilterBanner();
 }
+// Always-visible banner (all tabs) while any filter is active, with one-click clear / back-home.
+function updateFilterBanner(){
+  const bar = document.getElementById('activeFilterBanner'); if(!bar) return;
+  const tb = document.querySelector('.topbar');
+  bar.style.top = (tb ? tb.offsetHeight : 0) + 'px';
+  if(!hasActiveFilters()){ bar.style.display = 'none'; return; }
+  document.getElementById('activeFilterText').textContent =
+    '🔎 فلتر نشط — يعرض ' + getFilteredCars().length + ' من أصل ' + CARS.length + ' مركبة';
+  bar.style.display = 'flex';
+}
+document.getElementById('bannerClearBtn').addEventListener('click', ()=>{ document.getElementById('clearFilters').click(); });
+document.getElementById('bannerHomeBtn').addEventListener('click', ()=>{
+  document.getElementById('clearFilters').click();
+  document.querySelector('.tab-btn[data-tab="overview"]').click();
+  window.scrollTo(0,0);
+});
+window.addEventListener('resize', updateFilterBanner);
 function classifyBucket(level){
   if(level==='ok') return 'ok';
   if(level==='warn') return 'warn';
@@ -2242,6 +2267,7 @@ function renderAll(){
   renderOverview();
   applyFleet();
   renderCurrentTab();
+  updateFilterBanner();
 }
 
 /* ================================================================
