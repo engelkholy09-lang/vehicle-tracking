@@ -343,6 +343,7 @@ tbody tr:hover{background:var(--surface2);}
         <button id="tableBtn">جدول</button>
       </div>
       <button class="clear-btn" id="clearFilters">إعادة تعيين الفلاتر</button>
+      <button class="clear-btn" id="exportFleetBtn" title="تصدير القائمة الحالية (بعد الفلاتر) إلى ملف إكسيل">📥 تصدير إلى إكسيل</button>
       <div class="filters-row">
         <select id="f_location"><option value="">كل المواقع</option></select>
         <select id="f_project"><option value="">كل المشاريع</option></select>
@@ -1450,6 +1451,40 @@ function getFilteredCars(){
   getFilteredCars._cacheResult = result;
   return result;
 }
+/* ---------- Export current (filtered) list to Excel ---------- */
+function exportFilteredFleet(){
+  const list = getFilteredCars();
+  if(!list.length){ alert('لا توجد مركبات ضمن الفلاتر الحالية للتصدير.'); return; }
+  const rows = list.map(c=>{
+    const ps = priorityScore(c);
+    return {
+      'رقم اللوحة': c.plate || '',
+      'الماركة': c.make || '',
+      'الموديل': c.model || '',
+      'السنة': c.year || '',
+      'السائق الحالي': c.driver || '',
+      'الجوال': c.phone || '',
+      'المشروع': c.project || '',
+      'الموقع': Array.isArray(c.locations) ? c.locations.join('، ') : (c.locations || ''),
+      'حالة التأمين': c.__insurance.label,
+      'حالة الرخصة': c.__license.label,
+      'حالة التفويض': c.__auth.label,
+      'بدون تتبع': c.no_tracking ? 'نعم' : 'لا',
+      'عدد الصيانات': c.maintenance_count || 0,
+      'عدد الحوادث': c.accidents_count || 0,
+      'الملاحظات والإجراءات': ps.reasons.map(r=>r.txt).join(' | ')
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = Object.keys(rows[0]).map(k=>({wch: Math.max(12, Math.min(40, k.length+8))}));
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  XLSX.utils.book_append_sheet(wb, ws, 'المركبات');
+  const d = new Date();
+  const stamp = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  XLSX.writeFile(wb, 'fleet_'+stamp+'.xlsx');
+}
+document.getElementById('exportFleetBtn').addEventListener('click', exportFilteredFleet);
 function hasActiveFilters(){
   const f = currentFilters();
   return Object.values(f).some(v=>v && v.trim && v.trim()!=='' || (v && !v.trim && v!==''));
