@@ -443,6 +443,7 @@ tbody tr:hover{background:var(--surface2);}
     <p class="page-desc">توزيعات ومؤشرات محسوبة من بيانات الأسطول الفعلية.</p>
     <div id="analyticsFilterStatus"></div>
     <div class="analytics-grid" id="analyticsGrid"></div>
+    <div id="analyticsNote"></div>
   </div>
 
   <!-- ===== DATA QUALITY TAB ===== -->
@@ -1822,12 +1823,13 @@ function renderAnalytics(){
     `<div class="chart-card"><h3>أعلى المركبات تكلفة في الصيانة</h3><div class="empty-note">لا توجد بيانات تكلفة صيانة كافية</div></div>`;
   html += maintCountByMonth.length ? barChart('عدد عمليات الصيانة شهريًا', maintCountByMonth) :
     `<div class="chart-card"><h3>عدد عمليات الصيانة شهريًا</h3><div class="empty-note">لا توجد تواريخ صيانة يمكن تجميعها</div></div>`;
-  if(undatedMaint>0) html += `<div class="empty-note" style="grid-column:1/-1; margin-top:-6px;">ملاحظة: ${undatedMaint} عملية صيانة من أصل ${totalMaintRecs} بدون تاريخ مقروء، لذلك لا تظهر في الرسوم الشهرية (لكنها محسوبة في الإجماليات).</div>`;
   html += maintCostByMonth.length ? barChart('تكلفة الصيانة شهريًا (ريال)', maintCostByMonth) :
     `<div class="chart-card"><h3>تكلفة الصيانة شهريًا</h3><div class="empty-note">لا توجد بيانات كافية</div></div>`;
   html += accByMonth.length ? barChart('عدد الحوادث حسب الشهر', accByMonth) :
     `<div class="chart-card"><h3>عدد الحوادث حسب الشهر</h3><div class="empty-note">لا توجد تواريخ حوادث يمكن تجميعها</div></div>`;
   grid.innerHTML = html;
+  const noteBox = document.getElementById('analyticsNote');
+  if(noteBox) noteBox.innerHTML = undatedMaint>0 ? `<div class="empty-note" style="margin-top:14px;">ملاحظة: ${undatedMaint} عملية صيانة من أصل ${totalMaintRecs} بدون تاريخ مقروء، لذلك لا تظهر في الرسوم الشهرية (لكنها محسوبة في الإجماليات).</div>` : '';
 }
 
 /* ================= DATA QUALITY TAB ================= */
