@@ -127,6 +127,13 @@ select, .filter-select{
 }
 select:focus{border-color:var(--primary);}
 .filters-row{display:flex; gap:8px; flex-wrap:wrap; width:100%; margin-top:2px;}
+.fleet-layout{display:grid; grid-template-columns:260px minmax(0,1fr); gap:16px; align-items:start;}
+.fleet-layout.no-side{grid-template-columns:minmax(0,1fr);}
+.fleet-layout .filters-row{flex-direction:column; flex-wrap:nowrap; margin:0; position:sticky; top:70px; max-height:calc(100vh - 90px); overflow:auto;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px; gap:10px;}
+.fleet-layout .filters-row select{width:100%; min-width:0;}
+.fs-title{font-weight:700; font-size:14px; color:var(--text);}
+@media (max-width:900px){.fleet-layout{grid-template-columns:minmax(0,1fr);} .fleet-layout .filters-row{position:static; max-height:none;}}
 .clear-btn{
   background:none; border:1px solid var(--border); color:var(--muted); padding:8px 14px; border-radius:var(--radius-sm);
   cursor:pointer; font-size:13px;
@@ -378,7 +385,10 @@ tbody tr:hover{background:var(--surface2);}
       </select>
       <button class="clear-btn" id="toggleFilters" type="button">⚙️ فلاتر متقدمة</button>
       <button class="clear-btn" id="exportFleetBtn" title="تصدير القائمة الحالية (بعد الفلاتر) إلى ملف إكسيل">📥 تصدير إلى إكسيل</button>
-      <div class="filters-row">
+    </div>
+
+    <div class="fleet-layout" id="fleetLayout">
+      <aside class="filters-row"><div class="fs-title">🎛️ الفلاتر</div>
         <select id="f_location"><option value="">كل المواقع</option></select>
         <select id="f_project"><option value="">كل المشاريع</option></select>
         <select id="f_make"><option value="">كل الماركات</option></select>
@@ -419,9 +429,8 @@ tbody tr:hover{background:var(--surface2);}
           <option value="">الفواتير: الكل</option>
           <option value="unpaid">تحتوي فاتورة غير مدفوعة</option><option value="none">بدون فواتير</option>
         </select>
-      </div>
-    </div>
-
+      </aside>
+      <div class="fleet-main">
     <div class="result-count" id="resultCount"></div>
     <div id="grid"></div>
     <div class="table-wrap" id="tableWrap" style="display:none;">
@@ -435,6 +444,8 @@ tbody tr:hover{background:var(--surface2);}
         </thead>
         <tbody id="tableBody"></tbody>
       </table>
+    </div>
+      </div>
     </div>
   </div>
 
@@ -1692,7 +1703,8 @@ function sortCars(list){
 document.getElementById('sortSelect').addEventListener('change',()=>applyFleet());
 (function(){
   const row=document.querySelector('.filters-row'), b=document.getElementById('toggleFilters');
-  const set=open=>{row.style.display=open?'flex':'none'; b.textContent=(open?'⚙️ إخفاء الفلاتر':'⚙️ فلاتر متقدمة');};
+  const lay=document.getElementById('fleetLayout');
+  const set=open=>{row.style.display=open?'flex':'none'; lay.classList.toggle('no-side',!open); b.textContent=(open?'⚙️ إخفاء الفلاتر':'⚙️ فلاتر متقدمة');};
   set(window.innerWidth>720);
   b.addEventListener('click',()=>set(row.style.display==='none'));
 })();
