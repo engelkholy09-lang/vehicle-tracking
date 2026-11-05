@@ -78,7 +78,7 @@ button{font-family:inherit;}
 .onedrive-history th{text-align:right; color:var(--muted); padding:6px; font-weight:600; border-bottom:1px solid var(--border);}
 .onedrive-history td{padding:6px; border-bottom:1px solid var(--border);}
 @media print{
-  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
+  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #sortSelect, #toggleFilters, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
   body{background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
   .topbar{position:static !important; box-shadow:none !important;}
   .page{max-width:none; padding:8px 0;}
@@ -368,6 +368,15 @@ tbody tr:hover{background:var(--surface2);}
         <button id="tableBtn">جدول</button>
       </div>
       <button class="clear-btn" id="clearFilters">إعادة تعيين الفلاتر</button>
+      <select id="sortSelect" title="ترتيب النتائج">
+        <option value="">الترتيب: الافتراضي</option>
+        <option value="plate">رقم اللوحة</option>
+        <option value="alerts">الأكثر تنبيهات أولاً</option>
+        <option value="year_desc">الأحدث موديلاً</option>
+        <option value="year_asc">الأقدم موديلاً</option>
+        <option value="maint">الأكثر صيانة</option>
+      </select>
+      <button class="clear-btn" id="toggleFilters" type="button">⚙️ فلاتر متقدمة</button>
       <button class="clear-btn" id="exportFleetBtn" title="تصدير القائمة الحالية (بعد الفلاتر) إلى ملف إكسيل">📥 تصدير إلى إكسيل</button>
       <div class="filters-row">
         <select id="f_location"><option value="">كل المواقع</option></select>
@@ -1616,7 +1625,7 @@ function driverChip(c){
   return c.driver ? `<span class="chip ok">لديها سائق</span>` : `<span class="chip warn">بدون سائق</span>`;
 }
 function statusChipFor(label, statusObj){
-  return `<span class="chip ${statusChipClass(statusObj.level)}">${statusIcon(statusObj.level)} ${label}</span>`;
+  return `<span class="chip ${statusChipClass(statusObj.level)}">${statusIcon(statusObj.level)} ${label}${['ok','warn','danger'].includes(statusObj.level)?'':': غير مسجّل'}</span>`;
 }
 
 function renderGrid(list){
@@ -1666,8 +1675,29 @@ function renderTable(list){
   body.querySelectorAll('tr').forEach(el=>el.addEventListener('click', ()=>openModal(parseInt(el.dataset.idx))));
 }
 
+function sortCars(list){
+  const m=document.getElementById('sortSelect').value;
+  if(!m) return list;
+  const lv={danger:3,warn:2,info:1,ok:0};
+  const score=c=>[c.__insurance,c.__license,c.__auth].reduce((a,x)=>a+(x?lv[x.level]||0:0),0)+(c.accidents_count||0)*2;
+  const a=list.slice();
+  const yr=c=>parseInt(c.year)||0;
+  if(m==='plate') a.sort((x,y)=>String(x.plate).localeCompare(String(y.plate),'ar'));
+  else if(m==='alerts') a.sort((x,y)=>score(y)-score(x));
+  else if(m==='year_desc') a.sort((x,y)=>yr(y)-yr(x));
+  else if(m==='year_asc') a.sort((x,y)=>(yr(x)||9999)-(yr(y)||9999));
+  else if(m==='maint') a.sort((x,y)=>(y.maintenance_count||0)-(x.maintenance_count||0));
+  return a;
+}
+document.getElementById('sortSelect').addEventListener('change',()=>applyFleet());
+(function(){
+  const row=document.querySelector('.filters-row'), b=document.getElementById('toggleFilters');
+  const set=open=>{row.style.display=open?'flex':'none'; b.textContent=(open?'⚙️ إخفاء الفلاتر':'⚙️ فلاتر متقدمة');};
+  set(window.innerWidth>720);
+  b.addEventListener('click',()=>set(row.style.display==='none'));
+})();
 function applyFleet(){
-  const list = getFilteredCars();
+  const list = sortCars(getFilteredCars());
   document.getElementById('resultCount').textContent = `عدد النتائج: ${list.length} من أصل ${CARS.length} مركبة`;
   renderGrid(list);
   renderTable(list);
