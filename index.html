@@ -273,7 +273,8 @@ tbody tr:hover{background:var(--surface2);}
       </div>
     </div>
     <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none;">
-    <button class="update-btn" id="updateDataBtn">🔄 تحديث البيانات (محليًا)</button>
+    <button class="update-btn" id="updateDataBtn">🔄 تحديث البيانات</button>
+    <button class="update-btn od-btn-secondary" id="undoUpdateBtn" style="display:none;" title="يرجّع البيانات كما كانت قبل آخر تحديث قمت به من هذا المتصفح">↩️ تراجع عن آخر تحديث</button>
   </div>
 </div>
 <div class="ds-error" id="dsErrorBanner" style="display:none;"></div>
@@ -1049,18 +1050,59 @@ function isHijriLike(str){
   return false;
 }
 // returns {level: 'ok'|'warn'|'danger'|'unknown', label}
+/* ---------- Hijri (Umm al-Qura) -> Gregorian conversion ---------- */
+const _hijriCache = {};
+let _hijriFmt = null;
+function hijriToGregorian(hy, hm, hd){
+  const key = hy+'-'+hm+'-'+hd;
+  if(key in _hijriCache) return _hijriCache[key];
+  let result = null;
+  try{
+    if(!_hijriFmt) _hijriFmt = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {year:'numeric', month:'numeric', day:'numeric', timeZone:'UTC'});
+    const gy = Math.round(hy*0.970229 + 621.5746);
+    const start = Date.UTC(gy-1, 0, 1), end = Date.UTC(gy+1, 11, 31);
+    for(let t=start; t<=end; t+=86400000){
+      const p = _hijriFmt.formatToParts(new Date(t));
+      const y = +p.find(x=>x.type==='year').value, m = +p.find(x=>x.type==='month').value, d = +p.find(x=>x.type==='day').value;
+      if(y===hy && m===hm && d===hd){ const g = new Date(t); result = new Date(g.getUTCFullYear(), g.getUTCMonth(), g.getUTCDate()); break; }
+    }
+  }catch(e){ result = null; }
+  _hijriCache[key] = result;
+  return result;
+}
+// Accepts "dd/mm/1445" or "1445/mm/dd" (also with "-"), returns {date, text} or null.
+function parseHijri(str){
+  if(!str) return null;
+  const s = String(str).trim();
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](14\d{2})$/), hy, hm, hd;
+  if(m){ hd=+m[1]; hm=+m[2]; hy=+m[3]; }
+  else {
+    m = s.match(/^(14\d{2})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if(!m) return null;
+    hy=+m[1]; hm=+m[2]; hd=+m[3];
+  }
+  if(hm<1 || hm>12 || hd<1 || hd>30) return null;
+  const g = hijriToGregorian(hy, hm, hd);
+  return g ? { date:g, text: hy+'/'+String(hm).padStart(2,'0')+'/'+String(hd).padStart(2,'0')+' هـ' } : null;
+}
+function fmtGregShort(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function dateStatus(str, warnDays){
   warnDays = warnDays || 30;
   if(!str || !str.trim()) return {level:'unknown', label:'غير متوفر'};
-  const d = parseDate(str);
+  let d = parseDate(str);
+  let shown = str;
   if(!d){
-    if(isHijriLike(str)) return {level:'unknown', label:'تاريخ هجري: '+str};
-    return {level:'text', label:str};
+    const h = parseHijri(str);
+    if(h){ d = h.date; shown = h.text+' ≈ '+fmtGregShort(h.date); }
+    else {
+      if(isHijriLike(str)) return {level:'unknown', label:'تاريخ هجري: '+str};
+      return {level:'text', label:str};
+    }
   }
   const diffDays = Math.round((d - TODAY)/(1000*60*60*24));
-  if(diffDays < 0) return {level:'danger', label:'منتهي منذ '+Math.abs(diffDays)+' يوم ('+str+')'};
-  if(diffDays <= warnDays) return {level:'warn', label:'ينتهي خلال '+diffDays+' يوم ('+str+')'};
-  return {level:'ok', label:'ساري حتى '+str};
+  if(diffDays < 0) return {level:'danger', label:'منتهي منذ '+Math.abs(diffDays)+' يوم ('+shown+')'};
+  if(diffDays <= warnDays) return {level:'warn', label:'ينتهي خلال '+diffDays+' يوم ('+shown+')'};
+  return {level:'ok', label:'ساري حتى '+shown};
 }
 function statusIcon(level){
   return level==='ok' ? '🟢' : level==='warn' ? '🟠' : level==='danger' ? '🔴' : 'ℹ️';
@@ -2085,6 +2127,20 @@ async function handleExcelFile(file){
       throw new Error(msgs.join(' | '));
     }
 
+    // SAFETY: compare with the data currently shown and ask for confirmation before replacing/publishing
+    if(Array.isArray(CARS) && CARS.length){
+      const oldKeys = new Set(CARS.map(c=>c.plate_key)), newKeys = new Set(cars.map(c=>c.plate_key));
+      const added = [...newKeys].filter(k=>!oldKeys.has(k)).length;
+      const removed = [...oldKeys].filter(k=>!newKeys.has(k)).length;
+      const warn = (cars.length < CARS.length) ? '\n\n⚠️ عدد المركبات في الملف أقل من الحالي — تأكد إنه الملف الصحيح.' : '';
+      const ok = window.confirm('الملف: ' + file.name + '\nعدد المركبات في الملف: ' + cars.length + '\nعدد المركبات الحالي: ' + CARS.length +
+        '\nمركبات جديدة: ' + added + ' — مركبات غير موجودة في الملف: ' + removed + warn +
+        '\n\nهيتم نشر التحديث لكل من يفتح الرابط. تأكيد؟');
+      if(!ok){ return; }
+      try{ localStorage.setItem('fleet_prev_snapshot', JSON.stringify({ cars: CARS, report: REPORT, label: DATA_SOURCE_LABEL })); }catch(e){}
+      refreshUndoBtn();
+    }
+
     // SUCCESS: replace live data, keep a safe rollback snapshot
     CARS = cars;
     REPORT = report;
@@ -2127,6 +2183,24 @@ async function handleExcelFile(file){
   }
 }
 
+function refreshUndoBtn(){
+  const b = document.getElementById('undoUpdateBtn'); if(!b) return;
+  let has = false; try{ has = !!localStorage.getItem('fleet_prev_snapshot'); }catch(e){}
+  b.style.display = has ? '' : 'none';
+}
+document.getElementById('undoUpdateBtn').addEventListener('click', async ()=>{
+  let snap = null; try{ snap = JSON.parse(localStorage.getItem('fleet_prev_snapshot')||'null'); }catch(e){}
+  if(!snap || !Array.isArray(snap.cars) || !snap.cars.length){ refreshUndoBtn(); return; }
+  if(!window.confirm('هيتم إرجاع البيانات للنسخة السابقة (' + snap.cars.length + ' مركبة) ونشرها للجميع. تأكيد؟')) return;
+  CARS = snap.cars; REPORT = snap.report; LAST_GOOD_STATE = { cars: CARS, report: REPORT };
+  DATA_SOURCE_LABEL = (snap.label || 'نسخة سابقة') + ' (تراجع)';
+  renderAll();
+  const res = (typeof publishViaRelay === 'function') ? await publishViaRelay(null) : { ok:false };
+  setDataStatus(true, DATA_SOURCE_LABEL + (res && res.ok ? ' — تم نشر التراجع للجميع ✅' : ' (محلي فقط — فشل النشر)'));
+  try{ localStorage.removeItem('fleet_prev_snapshot'); }catch(e){}
+  refreshUndoBtn();
+});
+refreshUndoBtn();
 document.getElementById('updateDataBtn').addEventListener('click', ()=>{
   document.getElementById('excelFileInput').click();
 });
