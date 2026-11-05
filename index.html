@@ -1770,7 +1770,19 @@ function renderAnalytics(){
   if(analyticsStatusBar) analyticsStatusBar.innerHTML = activeFilterStatusHtml();
   const byLocation = countBy([].concat(...scope.map(c=>(c.locations.length?c.locations:["غير محدد"]).map(l=>({loc:l})))), c=>c.loc)
     .map(d=>({ label: locationDisplayLabel(d.label), value: d.value })); // display label only; underlying locations[] untouched
-  const byProject = countBy(scope, c=>c.project).slice(0,10);
+  // Group project names that differ only by spacing / hamza / ya forms (display the most common spelling).
+  const _pk = s => String(s||'').replace(/[\u064B-\u0652\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').replace(/\s+/g,'');
+  const _pg = new Map();
+  scope.forEach(c=>{
+    const raw = (c.project||'').trim() || 'غير محدد', k = _pk(raw);
+    const g = _pg.get(k) || { total:0, variants:new Map() };
+    g.total++; g.variants.set(raw, (g.variants.get(raw)||0)+1); _pg.set(k, g);
+  });
+  const byProject = [..._pg.values()].map(g=>({
+    label: [...g.variants.entries()].sort((a,b)=>b[1]-a[1])[0][0], value: g.total
+  })).sort((a,b)=>b.value-a.value).slice(0,10);
+  const undatedMaint = scope.reduce((n,c)=>n + c.maintenance.filter(m=>!parseDate(m.date)).length, 0);
+  const totalMaintRecs = scope.reduce((n,c)=>n + c.maintenance.length, 0);
   const byMake = countBy(scope, c=>c.make);
 
   const costByCar = scope.map(c=>({label:`${c.make} ${c.model} (${c.plate})`, value: c.maintenance_total_cost||0}))
@@ -1805,13 +1817,14 @@ function renderAnalytics(){
   const grid = document.getElementById('analyticsGrid');
   let html = '';
   html += barChart('توزيع المركبات حسب الموقع', byLocation);
-  html += `<div class="empty-note" style="grid-column:1/-1; margin-top:-6px;">ملاحظة: أعداد المواقع متداخلة؛ قد تُحتسب السيارة في أكثر من موقع.</div>`;
+  html += `<div class="empty-note" style="grid-column:1/-1; margin-top:-6px;">ملاحظة: الموقع هنا مأخوذ من الكشوف التي ظهرت فيها المركبة في ملف الإكسيل، وليس موقعًا فعليًا؛ لذلك قد تُحتسب السيارة في أكثر من بند ويكون المجموع أكبر من عدد المركبات.</div>`;
   html += barChart('توزيع المركبات حسب الماركة', byMake);
   html += barChart('توزيع المركبات حسب المشروع (أعلى 10)', byProject);
   html += costByCar.length ? barChart('أعلى المركبات تكلفة في الصيانة (ريال)', costByCar) :
     `<div class="chart-card"><h3>أعلى المركبات تكلفة في الصيانة</h3><div class="empty-note">لا توجد بيانات تكلفة صيانة كافية</div></div>`;
   html += maintCountByMonth.length ? barChart('عدد عمليات الصيانة شهريًا', maintCountByMonth) :
     `<div class="chart-card"><h3>عدد عمليات الصيانة شهريًا</h3><div class="empty-note">لا توجد تواريخ صيانة يمكن تجميعها</div></div>`;
+  if(undatedMaint>0) html += `<div class="empty-note" style="grid-column:1/-1; margin-top:-6px;">ملاحظة: ${undatedMaint} عملية صيانة من أصل ${totalMaintRecs} بدون تاريخ مقروء، لذلك لا تظهر في الرسوم الشهرية (لكنها محسوبة في الإجماليات).</div>`;
   html += maintCostByMonth.length ? barChart('تكلفة الصيانة شهريًا (ريال)', maintCostByMonth) :
     `<div class="chart-card"><h3>تكلفة الصيانة شهريًا</h3><div class="empty-note">لا توجد بيانات كافية</div></div>`;
   html += accByMonth.length ? barChart('عدد الحوادث حسب الشهر', accByMonth) :
