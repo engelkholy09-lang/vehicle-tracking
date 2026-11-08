@@ -390,7 +390,7 @@ tbody tr:hover{background:var(--surface2);}
 
     <div class="fleet-layout" id="fleetLayout">
       <aside class="filters-row"><div class="fs-title">🎛️ الفلاتر</div>
-        <select id="f_location"><option value="">كل المواقع</option></select>
+        <select id="f_location" style="display:none" aria-hidden="true"><option value="">كل المواقع</option></select>
         <select id="f_project"><option value="">كل المشاريع</option></select>
         <select id="f_make"><option value="">كل الماركات</option></select>
         <select id="f_model"><option value="">كل الموديلات</option></select>
@@ -439,7 +439,7 @@ tbody tr:hover{background:var(--surface2);}
         <thead>
           <tr>
             <th>رقم اللوحة</th><th>الماركة</th><th>الموديل</th><th>السنة</th><th>السائق الحالي</th>
-            <th>الجوال</th><th>المشروع</th><th>الموقع</th><th>التأمين</th><th>الرخصة</th>
+            <th>الجوال</th><th>المشروع</th><th>التأمين</th><th>الرخصة</th>
             <th>عدد الصيانات</th><th>الحوادث</th>
           </tr>
         </thead>
@@ -1574,7 +1574,6 @@ function exportFilteredFleet(){
       'السائق الحالي': c.driver || '',
       'الجوال': c.phone || '',
       'المشروع': c.project || '',
-      'الموقع': Array.isArray(c.locations) ? c.locations.join('، ') : (c.locations || ''),
       'حالة التأمين': c.__insurance.label,
       'حالة الرخصة': c.__license.label,
       'حالة التفويض': c.__auth.label,
@@ -1678,7 +1677,6 @@ function renderGrid(list){
       </div>
       <div class="cc-row"><span>السائق الحالي</span><b>${esc(c.driver)||'—'}</b></div>
       <div class="cc-row"><span>المشروع</span><b>${esc(c.project)||'—'}</b></div>
-      <div class="cc-row"><span>الموقع</span><b>${(c.locations||[]).join('، ')||'—'}</b></div>
       <div class="chips">
         ${driverChip(c)}
         ${statusChipFor('التأمين', c.__insurance)}
@@ -1693,7 +1691,7 @@ function renderGrid(list){
 function renderTable(list){
   const body = document.getElementById('tableBody');
   if(list.length===0){
-    body.innerHTML = `<tr><td colspan="12" class="empty-state">لا توجد نتائج مطابقة</td></tr>`;
+    body.innerHTML = `<tr><td colspan="11" class="empty-state">لا توجد نتائج مطابقة</td></tr>`;
     return;
   }
   body.innerHTML = list.map(c=>`
@@ -1701,7 +1699,7 @@ function renderTable(list){
       <td><span class="plate-tag" style="font-size:11px; padding:3px 8px;">${esc(c.plate)}</span></td>
       <td>${esc(c.make)}</td><td>${esc(c.model)}</td><td>${esc(c.year)||'—'}</td>
       <td>${esc(c.driver)||'—'}</td><td>${esc(c.phone)||'—'}</td>
-      <td>${esc(c.project)||'—'}</td><td>${(c.locations||[]).join('، ')||'—'}</td>
+      <td>${esc(c.project)||'—'}</td>
       <td>${statusIcon(c.__insurance.level)}</td><td>${statusIcon(c.__license.level)}</td>
       <td>${c.maintenance_count}</td><td>${c.accidents_count}</td>
     </tr>`).join('');
@@ -2062,7 +2060,7 @@ function showDqDetail(key){
 function openModal(idx){
   const c = CARS[idx];
   document.getElementById('modalTitle').innerHTML = `${esc(c.make)} ${esc(c.model)} <span class="plate-tag" style="margin-right:8px; font-size:12px;">${esc(c.plate)}</span>`;
-  document.getElementById('modalSub').textContent = `${(c.locations||[]).join('، ')||'—'} · مصدر البيانات: ${(c.source_sheets||[]).join('، ')}`;
+  document.getElementById('modalSub').textContent = `مصدر البيانات: ${(c.source_sheets||[]).join('، ')}`;
 
   document.querySelectorAll('.mtab-btn').forEach((b,i)=>b.classList.toggle('active', i===0));
   buildModalPanes(c);
@@ -2075,7 +2073,7 @@ function buildModalPanes(c){
   const infoItems = [
     ['رقم اللوحة', c.plate], ['الماركة', c.make], ['الموديل', c.model], ['سنة الصنع', c.year],
     ['رقم الهيكل', c.chassis], ['الرقم التسلسلي', c.serial], ['المشروع', c.project],
-    ['الموقع', (c.locations||[]).join('، ')], ['عداد السيارة', c.odometer],
+    ['عداد السيارة', c.odometer],
   ];
   let infoHtml = `<div class="info-grid">` + infoItems.map(([k,v])=>`
     <div class="info-item"><div class="k">${esc(k)}</div><div class="v">${esc(v)||'—'}</div></div>`).join('') + `</div>`;
