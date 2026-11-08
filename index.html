@@ -674,14 +674,18 @@ function strictParseFloat(v){
    Builds the `cars` map (Plate Number = Primary Key) and links every
    secondary sheet (maintenance/accidents/inspection) to it.
    ================================================================ */
+// Map that also resolves alias plate keys (same vehicle, plate letters typed differently in another sheet).
+class AliasMap extends Map{
+  constructor(){ super(); this.__alias = new Map(); }
+  has(k){ return super.has(k) || this.__alias.has(k); }
+  get(k){ return super.has(k) ? super.get(k) : (this.__alias.has(k) ? super.get(this.__alias.get(k)) : undefined); }
+}
 function ensureCar(cars, row, location, sheetLabel, forceKey){
   let key = plateKeyFromRow(row);
   const numPart = key.split('|')[0];
   if(numPart === "") return [null, null];
   // Same vehicle written with different plate letters in two sheets (data-entry typo):
   // same plate number + same make/model/year -> treat as ONE vehicle, remember the alias.
-  if(!cars.__alias) cars.__alias = new Map();
-  if(!forceKey && !cars.has(key) && cars.__alias.has(key)) return ensureCar(cars, row, location, sheetLabel, cars.__alias.get(key));
   if(!forceKey && !cars.has(key)){
     const mk=cleanVal(row[1]), md=cleanVal(row[2]), yr=String(cleanVal(row[3]));
     if(mk && md){
@@ -713,7 +717,7 @@ function ensureCar(cars, row, location, sheetLabel, forceKey){
   const c = cars.get(key);
   if(location && !c.locations.includes(location)) c.locations.push(location);
   if(!c.source_sheets.includes(sheetLabel)) c.source_sheets.push(sheetLabel);
-  return [key, c];
+  return [c.plate_key, c];
 }
 function setField(c, field, rawValue, sourceLabel){
   const value = cleanVal(rawValue);
@@ -752,7 +756,7 @@ function buildDashboardData(workbook){
       description: `شيت "${s.key}" غير موجود في هذا الملف (تم البحث عن: ${SHEET_CONFIG[s.key].candidates.join(', ')}). تم تجاهله ومتابعة المعالجة بباقي الشيتات.` });
   });
 
-  const cars = new Map();
+  const cars = new AliasMap();
   const duplicateLog = [];
   const unmatchedLog = [];
   const seenKeysPerSheet = new Map();
@@ -2236,6 +2240,7 @@ document.getElementById('modalTabs').addEventListener('click', (e)=>{
 });
 document.getElementById('closeBtn').addEventListener('click', ()=>document.getElementById('overlay').classList.remove('show'));
 document.getElementById('overlay').addEventListener('click', (e)=>{ if(e.target.id==='overlay') e.currentTarget.classList.remove('show'); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') document.getElementById('overlay').classList.remove('show'); });
 
 /* KPI click-through to fleet w/ filter (basic UX helper) */
 
