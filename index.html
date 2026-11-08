@@ -1194,6 +1194,12 @@ function computeDerived(list){
         latestInsp = {level:'text', label: c.inspections[c.inspections.length-1].status || 'بدون تاريخ محدد'};
       }
     }
+    // Inspection data usually lives in the cars sheets' column "بيانات الفحص حسب موقع سلامة" (a date, or a note).
+    const noteSt = dateStatus(String(c.inspection_note||''), 30);
+    const noteDated = ['ok','warn','danger'].includes(noteSt.level);
+    if(!(c.inspections && c.inspections.length) && noteDated) latestInsp = noteSt;
+    else if(!(c.inspections && c.inspections.length) && c.inspection_note && /لا\s*تصلح|لاتصلح/.test(c.inspection_note)) latestInsp = {level:'text', label:'السيارة لا تصلح للفحص'};
+    c.__hasInsp = !!((c.inspections && c.inspections.length) || noteDated);
     c.__inspection = latestInsp;
     c.__needsAction = !c.driver || c.__insurance.level==='danger' || c.__license.level==='danger' ||
                        c.__auth.level==='danger' || c.__license.level==='warn' || c.__auth.level==='warn' ||
@@ -1224,7 +1230,7 @@ function renderOverview(){
   const needsAction = scope.filter(c=>c.__needsAction).length;
   const totalMaint = scope.reduce((a,c)=>a+c.maintenance_count,0);
   const totalAcc = scope.reduce((a,c)=>a+c.accidents_count,0);
-  const inspected = scope.filter(c=>c.inspections && c.inspections.length).length;
+  const inspected = scope.filter(c=>c.__hasInsp).length;
   const insuranceNearExpiry = scope.filter(c=>c.__insurance.level==='warn' || c.__insurance.level==='danger').length;
   const noTracking = scope.filter(c=>c.no_tracking).length;
   const trackingCoveragePct = total>0 ? Math.round(((total-noTracking)/total)*100) : 0;
@@ -1420,7 +1426,7 @@ function renderProjectConcentration(scope){
 function dataConfidence(c){
   const checks = [
     !!c.driver, !!c.insurance_policy, !!c.license_expiry, !!c.auth_expiry, !!c.tracker,
-    c.inspections.length>0, c.maintenance_count>0
+    c.__hasInsp, c.maintenance_count>0
   ];
   const known = checks.filter(Boolean).length;
   const total = checks.length;
@@ -1762,6 +1768,7 @@ function alertDetailFor(key, c){
     case 'license_expired': case 'license_soon': return 'الرخصة: ' + c.__license.label;
     case 'auth_expired': case 'auth_soon': return 'التفويض: ' + c.__auth.label;
     case 'no_inspection': return 'لا يوجد فحص دوري مسجل';
+    case 'inspection_expired': case 'inspection_soon': return 'الفحص الدوري: ' + c.__inspection.label;
     case 'no_driver': return 'لا يوجد سائق مستلم حاليًا';
     case 'no_maint': return 'لا يوجد سجل صيانة';
     case 'has_accidents': return c.accidents_count + (c.accidents_count===1 ? ' حادث مسجل' : ' حوادث مسجلة');
@@ -1781,7 +1788,9 @@ function buildAlertGroups(scope){
     {key:'no_driver', lvl:'warn', title:'بدون سائق مستلم', list: scope.filter(c=>!c.driver)},
     {key:'no_tracking', lvl:'warn', title:'بدون جهاز تتبع', list: scope.filter(c=>c.no_tracking)},
     {key:'unpaid_invoices', lvl:'warn', title:'لديها فواتير غير مدفوعة', list: scope.filter(vehicleHasUnpaidOrUnknownInvoice)},
-    {key:'no_inspection', lvl:'info', title:'بدون فحص دوري مسجل', list: scope.filter(c=>!c.inspections || c.inspections.length===0)},
+    {key:'no_inspection', lvl:'info', title:'بدون فحص دوري مسجل', list: scope.filter(c=>!c.__hasInsp)},
+    {key:'inspection_expired', lvl:'danger', title:'فحص دوري منتهي', list: scope.filter(c=>c.__hasInsp && c.__inspection.level==='danger')},
+    {key:'inspection_soon', lvl:'warn', title:'فحص دوري قريب الانتهاء', list: scope.filter(c=>c.__hasInsp && c.__inspection.level==='warn')},
     {key:'no_maint', lvl:'info', title:'بدون سجل صيانة', list: scope.filter(c=>c.maintenance_count===0)},
   ];
 }
@@ -1945,7 +1954,7 @@ function renderQuality(){
   const scope = getFilteredCars();
   const statusBar = document.getElementById('qualityFilterStatus');
   if(statusBar) statusBar.innerHTML = activeFilterStatusHtml();
-  const complete = scope.filter(c=>c.driver && c.insurance_policy && c.inspections.length && c.maintenance_count).length;
+  const complete = scope.filter(c=>c.driver && c.insurance_policy && c.__hasInsp && c.maintenance_count).length;
   const incomplete = scope.length - complete;
   const dq = [
     {key:'complete', num:complete, lbl:'سجلات مكتملة البيانات'},
@@ -1953,7 +1962,7 @@ function renderQuality(){
     {key:'dup', num:REPORT.duplicate_plate_entries_within_sheet.length, lbl:'لوحات مكررة داخل الشيتات (إجمالي الملف بالكامل)'},
     {key:'no_driver', num:scope.filter(c=>!c.driver).length, lbl:'بدون سائق'},
     {key:'no_insurance', num:scope.filter(c=>!c.insurance_policy).length, lbl:'بدون بيانات تأمين'},
-    {key:'no_inspection', num:scope.filter(c=>!c.inspections.length).length, lbl:'بدون فحص دوري'},
+    {key:'no_inspection', num:scope.filter(c=>!c.__hasInsp).length, lbl:'بدون فحص دوري'},
     {key:'no_maintenance', num:scope.filter(c=>!c.maintenance_count).length, lbl:'بدون سجل صيانة'},
     {key:'unmatched_maintenance', num:REPORT.unmatched_secondary_records.filter(u=>u.sheet==='الصيانة').length, lbl:'سجلات صيانة غير مرتبطة / Malformed (إجمالي الملف بالكامل)'},
     {key:'unmatched_inspection', num:REPORT.unmatched_secondary_records.filter(u=>u.sheet==='الفحص').length, lbl:'سجلات فحص غير مرتبطة (إجمالي الملف بالكامل)'},
@@ -2038,15 +2047,15 @@ function showDqDetail(key){
   } else if(key==='no_insurance'){
     title='مركبات بدون بيانات تأمين'; rows = scope.filter(c=>!c.insurance_policy).map(c=>`${c.plate} — ${c.make} ${c.model}`);
   } else if(key==='no_inspection'){
-    title='مركبات بدون فحص دوري'; rows = scope.filter(c=>!c.inspections.length).map(c=>`${c.plate} — ${c.make} ${c.model}`);
+    title='مركبات بدون فحص دوري'; rows = scope.filter(c=>!c.__hasInsp).map(c=>`${c.plate} — ${c.make} ${c.model}`);
   } else if(key==='no_maintenance'){
     title='مركبات بدون سجل صيانة'; rows = scope.filter(c=>!c.maintenance_count).map(c=>`${c.plate} — ${c.make} ${c.model}`);
   } else if(key==='incomplete'){
     title='سجلات ناقصة البيانات (ينقصها سائق أو تأمين أو فحص أو صيانة)';
-    rows = scope.filter(c=>!(c.driver && c.insurance_policy && c.inspections.length && c.maintenance_count)).map(c=>`${c.plate} — ${c.make} ${c.model}`);
+    rows = scope.filter(c=>!(c.driver && c.insurance_policy && c.__hasInsp && c.maintenance_count)).map(c=>`${c.plate} — ${c.make} ${c.model}`);
   } else if(key==='complete'){
     title='سجلات مكتملة البيانات';
-    rows = scope.filter(c=>c.driver && c.insurance_policy && c.inspections.length && c.maintenance_count).map(c=>`${c.plate} — ${c.make} ${c.model}`);
+    rows = scope.filter(c=>c.driver && c.insurance_policy && c.__hasInsp && c.maintenance_count).map(c=>`${c.plate} — ${c.make} ${c.model}`);
   }
   box.innerHTML = `<div class="subview-list"><h4>${title} (${rows.length})</h4>
     ${rows.length===0? '<div class="empty-note">لا توجد سجلات</div>' : rows.map(r=>{const t=typeof r==='string'?r:r.text, ix=(typeof r==='object'&&r.idx!=null)?r.idx:null; return `<div class="subview-row"${ix!=null?` data-idx="${ix}" style="cursor:pointer" title="اضغط لعرض بيانات المركبة"`:''}>${esc(t)}${ix!=null?' <span style="color:var(--primary)">← عرض المركبة</span>':''}</div>`;}).join('')}
