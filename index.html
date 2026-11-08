@@ -248,6 +248,7 @@ tbody tr:hover{background:var(--surface2);}
 .report-box{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow); font-size:13.5px; line-height:2;}
 .report-box .ok-line{color:var(--ok); font-weight:700;}
 .report-box .bad-line{color:var(--danger); font-weight:700;}
+.dq-card.active{outline:2px solid var(--primary);}
 .subview-list{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-top:14px; box-shadow:var(--shadow);}
 .subview-list h4{margin:0 0 10px; font-size:13.5px;}
 .subview-row{display:flex; justify-content:space-between; padding:8px 10px; border-bottom:1px solid var(--border); font-size:12.5px; cursor:pointer;}
@@ -472,8 +473,8 @@ tbody tr:hover{background:var(--surface2);}
     <p class="page-desc">تقرير تحقق شامل عن اكتمال الربط بين الشيتات، ونسب اكتمال البيانات. اضغط على أي رقم لعرض السجلات المتأثرة.</p>
     <div id="qualityFilterStatus"></div>
     <div class="dq-grid" id="dqGrid"></div>
-    <div class="report-box" id="reportBox"></div>
     <div id="dqDetail"></div>
+    <div class="report-box" id="reportBox"></div>
   </div>
 
 </div>
@@ -783,9 +784,10 @@ function buildDashboardData(workbook){
       if(!c) continue;
       sheetKeySet.add(key);
       const seenSet = seenKeysPerSheet.get(sheetName);
+      if(!seenSet.firstRows) seenSet.firstRows = new Map();
       if(seenSet.has(key)){
-        duplicateLog.push({ sheet: sheetName, row: i+1, plate: plateDisplayFromRow(row), note: 'لوحة مكررة داخل نفس الشيت' });
-      }
+        duplicateLog.push({ sheet: sheetName, row: i+1, first_row: seenSet.firstRows.get(key)||null, plate_key: key, plate: plateDisplayFromRow(row), note: 'لوحة مكررة داخل نفس الشيت' });
+      } else { seenSet.firstRows.set(key, i+1); }
       seenSet.add(key);
 
       setField(c, 'chassis', row[8], sheetName);
@@ -1997,7 +1999,10 @@ function showDqDetail(key){
   let title='', rows=[];
   if(key==='dup'){
     title='اللوحات المكررة داخل الشيتات';
-    rows = REPORT.duplicate_plate_entries_within_sheet.map(d=>`${d.plate} — الشيت: ${d.sheet} (صف ${d.row}) — ${d.note}`);
+    rows = REPORT.duplicate_plate_entries_within_sheet.map(d=>{
+      const car = CARS.find(c=>c.plate_key===d.plate_key) || CARS.find(c=>c.plate===d.plate);
+      return {text:`${d.plate}${car?` — ${car.make} ${car.model} ${car.year||''}`:''} — الشيت: ${d.sheet} — ظهرت في الصف ${d.first_row?d.first_row+' ثم تكررت في الصف ':''}${d.row}`, idx: car?car.__idx:null};
+    });
   } else if(key==='unmatched_maintenance'){
     title='سجلات صيانة غير مرتبطة (Unmatched / Malformed Maintenance Record)';
     rows = REPORT.unmatched_secondary_records.filter(u=>u.sheet==='الصيانة').map(d=>`[${d.record_type||'Unmatched Maintenance Record'}] الشيت: ${d.sheet} (صف ${d.row}) — القيم الخام في الصف: ${d.raw_values||'—'} — ${d.reason}${d.entries_lost!=null? ' — عدد سجلات الصيانة المتأثرة في هذا الصف: '+d.entries_lost:''}`);
@@ -2046,8 +2051,11 @@ function showDqDetail(key){
     rows = scope.filter(c=>c.driver && c.insurance_policy && c.inspections.length && c.maintenance_count).map(c=>`${c.plate} — ${c.make} ${c.model}`);
   }
   box.innerHTML = `<div class="subview-list"><h4>${title} (${rows.length})</h4>
-    ${rows.length===0? '<div class="empty-note">لا توجد سجلات</div>' : rows.map(r=>`<div class="subview-row">${esc(r)}</div>`).join('')}
+    ${rows.length===0? '<div class="empty-note">لا توجد سجلات</div>' : rows.map(r=>{const t=typeof r==='string'?r:r.text, ix=(typeof r==='object'&&r.idx!=null)?r.idx:null; return `<div class="subview-row"${ix!=null?` data-idx="${ix}" style="cursor:pointer" title="اضغط لعرض بيانات المركبة"`:''}>${esc(t)}${ix!=null?' <span style="color:var(--primary)">← عرض المركبة</span>':''}</div>`;}).join('')}
   </div>`;
+  box.querySelectorAll('.subview-row[data-idx]').forEach(el=>el.addEventListener('click',()=>openModal(parseInt(el.dataset.idx))));
+  document.querySelectorAll('.dq-card').forEach(el=>el.classList.toggle('active', el.dataset.key===key));
+  box.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 /* ================= MODAL ================= */
