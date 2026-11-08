@@ -674,10 +674,26 @@ function strictParseFloat(v){
    Builds the `cars` map (Plate Number = Primary Key) and links every
    secondary sheet (maintenance/accidents/inspection) to it.
    ================================================================ */
-function ensureCar(cars, row, location, sheetLabel){
-  const key = plateKeyFromRow(row);
+function ensureCar(cars, row, location, sheetLabel, forceKey){
+  let key = plateKeyFromRow(row);
   const numPart = key.split('|')[0];
   if(numPart === "") return [null, null];
+  // Same vehicle written with different plate letters in two sheets (data-entry typo):
+  // same plate number + same make/model/year -> treat as ONE vehicle, remember the alias.
+  if(!cars.__alias) cars.__alias = new Map();
+  if(!forceKey && !cars.has(key) && cars.__alias.has(key)) return ensureCar(cars, row, location, sheetLabel, cars.__alias.get(key));
+  if(!forceKey && !cars.has(key)){
+    const mk=cleanVal(row[1]), md=cleanVal(row[2]), yr=String(cleanVal(row[3]));
+    if(mk && md){
+      for(const [k2,c2] of cars){
+        if(k2.split('|')[0]===numPart && c2.make===mk && c2.model===md && String(c2.year)===yr){
+          cars.__alias.set(key,k2);
+          return ensureCar(cars, row, location, sheetLabel, k2);
+        }
+      }
+    }
+  }
+  if(forceKey) key = forceKey;
   if(!cars.has(key)){
     cars.set(key, {
       plate_key: key,
