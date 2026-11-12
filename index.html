@@ -78,7 +78,7 @@ button{font-family:inherit;}
 .onedrive-history th{text-align:right; color:var(--muted); padding:6px; font-weight:600; border-bottom:1px solid var(--border);}
 .onedrive-history td{padding:6px; border-bottom:1px solid var(--border);}
 @media print{
-  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #invoicesLink, #sortSelect, #toggleFilters, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
+  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #sortSelect, #toggleFilters, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
   body{background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
   .topbar{position:static !important; box-shadow:none !important;}
   .page{max-width:none; padding:8px 0;}
@@ -337,7 +337,6 @@ tbody tr:hover{background:var(--surface2);}
   <div class="tab-pane" id="tab-overview">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
       <h2 class="page-title" style="margin:0;">نظرة عامة على الأسطول</h2>
-      <a class="clear-btn" id="invoicesLink" href="https://namaaconsult-my.sharepoint.com/:f:/g/personal/m_elkhouly_kharetatalenmaa_sa/IgAaex2TMN-tT5T_oPSCKHcqAUiazK1txQloy63XE1T3y74?e=2MFxsF" target="_blank" rel="noopener" style="text-decoration:none">📂 فواتير الصيانة</a>
       <button class="clear-btn" id="printBtn" title="طباعة الصفحة الحالية أو حفظها PDF (تاريخ التقرير يظهر تلقائيًا)">🖨️ طباعة / PDF</button>
     </div>
     <div id="printDate" style="display:none;"></div>
@@ -2066,6 +2065,55 @@ function showDqDetail(key){
   box.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
+
+/* ================= MAINTENANCE INVOICES (stored in the GitHub repo through the relay) ================= */
+const INVOICE_RAW_BASE = 'https://raw.githubusercontent.com/engelkholy09-lang/vehicle-tracking/main/';
+let INVOICE_INDEX = {};
+function invHash(str){ let h=5381; for(let i=0;i<str.length;i++) h=((h<<5)+h+str.charCodeAt(i))|0; return (h>>>0).toString(36); }
+function invKey(c,m){ return 'i'+invHash([c.plate_key||c.plate, m.date||'', m.type||'', m.price||''].join('|')); }
+function invLabel(c,m){ return (String(c.plate||'').replace(/\D/g,'')+'_'+String(m.date||'').replace(/[^0-9]/g,'-')).slice(0,40); }
+function invViewsHtml(key){
+  const list = INVOICE_INDEX[key]||[];
+  return list.map((f,i)=>`<a class="clear-btn" style="text-decoration:none;padding:3px 8px" href="${INVOICE_RAW_BASE+encodeURI(f.p)}" target="_blank" rel="noopener">👁 عرض${list.length>1?' '+(i+1):''}</a>`).join(' ');
+}
+function invCellHtml(c,m){
+  const key=invKey(c,m);
+  return `<span class="inv-cell" data-key="${key}"><span class="inv-views">${invViewsHtml(key)}</span>
+    <label class="clear-btn" style="padding:3px 8px;cursor:pointer;display:inline-block">⬆ رفع<input type="file" class="inv-file" accept="image/*,application/pdf" hidden data-key="${key}" data-label="${esc(invLabel(c,m))}"></label>
+    <span class="inv-msg" style="font-size:11px;color:var(--muted)"></span></span>`;
+}
+async function loadInvoiceIndex(){
+  try{ const r=await fetch('./invoices.json?ts='+Date.now()); if(r.ok) INVOICE_INDEX = await r.json(); }catch(e){}
+}
+function fileToBase64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]); fr.onerror=rej; fr.readAsDataURL(blob); }); }
+async function compressImage(file){
+  const bmp = await createImageBitmap(file);
+  const max=1600, k=Math.min(1, max/Math.max(bmp.width,bmp.height));
+  const cv=document.createElement('canvas'); cv.width=Math.round(bmp.width*k); cv.height=Math.round(bmp.height*k);
+  cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
+  return await new Promise(r=>cv.toBlob(r,'image/jpeg',0.75));
+}
+document.addEventListener('change', async (e)=>{
+  const inp=e.target; if(!inp.classList || !inp.classList.contains('inv-file') || !inp.files[0]) return;
+  const cell=inp.closest('.inv-cell'), msg=cell.querySelector('.inv-msg'), file=inp.files[0];
+  try{
+    let blob=file, ext='pdf';
+    if(file.type.startsWith('image/')){ msg.textContent='جاري تصغير الصورة...'; blob=await compressImage(file); ext='jpg'; }
+    else if(file.type!=='application/pdf'){ msg.textContent='الملف لازم يكون صورة أو PDF'; inp.value=''; return; }
+    if(blob.size>5*1024*1024){ msg.textContent='الملف أكبر من 5 ميجا'; inp.value=''; return; }
+    msg.textContent='جاري الرفع...';
+    const body={ action:'invoice', passcode: localStorage.getItem('fleet_team_passcode')||'', key:inp.dataset.key, label:inp.dataset.label, ext, content_base64: await fileToBase64(blob) };
+    const res=await fetch(GITHUB_PAGES_SYNC.publishEndpoint,{method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify(body)});
+    const j=await res.json().catch(()=>({}));
+    if(res.ok && j.ok){
+      (INVOICE_INDEX[inp.dataset.key]=INVOICE_INDEX[inp.dataset.key]||[]).push({p:j.path,t:new Date().toISOString()});
+      cell.querySelector('.inv-views').innerHTML=invViewsHtml(inp.dataset.key);
+      msg.textContent='✅ تم الرفع';
+    } else msg.textContent='تعذّر الرفع ('+(j.reason||res.status)+')';
+  }catch(err){ msg.textContent='تعذّر الرفع'; }
+  inp.value='';
+});
+
 /* ================= MODAL ================= */
 function openModal(idx){
   const c = CARS[idx];
@@ -2127,8 +2175,8 @@ function buildModalPanes(c){
   `;
 
   // MAINTENANCE PANE
-  const INVOICES_URL = 'https://namaaconsult-my.sharepoint.com/:f:/g/personal/m_elkhouly_kharetatalenmaa_sa/IgAaex2TMN-tT5T_oPSCKHcqAUiazK1txQloy63XE1T3y74?e=2MFxsF';
-  let maintHtml = `<div style="margin-bottom:10px"><a class="clear-btn" href="${INVOICES_URL}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">📂 فواتير الصيانة — رفع وعرض (اسم الملف: ${esc(String(c.plate||'').replace(/\s+/g,''))}_التاريخ)</a></div>`;
+  const __unused_INV = 'https://namaaconsult-my.sharepoint.com/:f:/g/personal/m_elkhouly_kharetatalenmaa_sa/IgAaex2TMN-tT5T_oPSCKHcqAUiazK1txQloy63XE1T3y74?e=2MFxsF';
+  let maintHtml = '';
   maintHtml += `<div class="mini-stats">
     <div class="mini-stat"><b>${c.maintenance_count}</b>عدد عمليات الصيانة</div>
     <div class="mini-stat"><b>${c.maintenance_total_cost!=null? fmtMoney(c.maintenance_total_cost):'غير محسوبة'}</b>إجمالي التكلفة</div>
@@ -2141,7 +2189,7 @@ function buildModalPanes(c){
     maintHtml += `<table style="width:100%; border-collapse:collapse; font-size:12.5px;">
       <thead><tr style="color:var(--muted); text-align:right;">
         <th style="padding:6px;">التاريخ</th><th style="padding:6px;">نوع الصيانة</th><th style="padding:6px;">التكلفة</th><th style="padding:6px;">الموظف</th><th style="padding:6px;">ملاحظات</th>
-      </tr></thead><tbody>` +
+      <th style="padding:6px;">الفاتورة</th></tr></thead><tbody>` +
       [...c.maintenance].reverse().map(m=>`
         <tr style="border-top:1px solid var(--border);">
           <td style="padding:6px;">${esc(m.date)||'—'}</td>
@@ -2149,6 +2197,7 @@ function buildModalPanes(c){
           <td style="padding:6px;">${m.price? '<span class="price-tag">'+esc(m.price)+' ريال</span>':'—'}</td>
           <td style="padding:6px;">${esc(m.employee)||'—'}</td>
           <td style="padding:6px;">${esc(m.notes)||'—'}</td>
+          <td style="padding:6px; white-space:nowrap;">${invCellHtml(c,m)}</td>
         </tr>`).join('') + `</tbody></table>`;
   }
 
@@ -2559,6 +2608,7 @@ async function publishToGitHub(file){
   }
 }
 
+loadInvoiceIndex();
 hydrateFromDataJson();
 </script>
 <script>
