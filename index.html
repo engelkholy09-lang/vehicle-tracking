@@ -78,7 +78,7 @@ button{font-family:inherit;}
 .onedrive-history th{text-align:right; color:var(--muted); padding:6px; font-weight:600; border-bottom:1px solid var(--border);}
 .onedrive-history td{padding:6px; border-bottom:1px solid var(--border);}
 @media print{
-  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #sortSelect, #toggleFilters, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
+  .topbar .tabs, .data-source-bar, .toolbar, #printBtn, #exportFleetBtn, #invoicesLink, #sortSelect, #toggleFilters, #activeFilterBanner, .view-toggle, .filters-row, #dsErrorBanner, .overlay{display:none !important;}
   body{background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
   .topbar{position:static !important; box-shadow:none !important;}
   .page{max-width:none; padding:8px 0;}
@@ -337,6 +337,7 @@ tbody tr:hover{background:var(--surface2);}
   <div class="tab-pane" id="tab-overview">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
       <h2 class="page-title" style="margin:0;">نظرة عامة على الأسطول</h2>
+      <a class="clear-btn" id="invoicesLink" href="https://namaaconsult-my.sharepoint.com/:f:/g/personal/m_elkhouly_kharetatalenmaa_sa/IgAaex2TMN-tT5T_oPSCKHcqAUiazK1txQloy63XE1T3y74?e=2MFxsF" target="_blank" rel="noopener" style="text-decoration:none">📂 فواتير الصيانة</a>
       <button class="clear-btn" id="printBtn" title="طباعة الصفحة الحالية أو حفظها PDF (تاريخ التقرير يظهر تلقائيًا)">🖨️ طباعة / PDF</button>
     </div>
     <div id="printDate" style="display:none;"></div>
@@ -2126,7 +2127,8 @@ function buildModalPanes(c){
   `;
 
   // MAINTENANCE PANE
-  let maintHtml = '';
+  const INVOICES_URL = 'https://namaaconsult-my.sharepoint.com/:f:/g/personal/m_elkhouly_kharetatalenmaa_sa/IgAaex2TMN-tT5T_oPSCKHcqAUiazK1txQloy63XE1T3y74?e=2MFxsF';
+  let maintHtml = `<div style="margin-bottom:10px"><a class="clear-btn" href="${INVOICES_URL}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">📂 فواتير الصيانة — رفع وعرض (اسم الملف: ${esc(String(c.plate||'').replace(/\s+/g,''))}_التاريخ)</a></div>`;
   maintHtml += `<div class="mini-stats">
     <div class="mini-stat"><b>${c.maintenance_count}</b>عدد عمليات الصيانة</div>
     <div class="mini-stat"><b>${c.maintenance_total_cost!=null? fmtMoney(c.maintenance_total_cost):'غير محسوبة'}</b>إجمالي التكلفة</div>
