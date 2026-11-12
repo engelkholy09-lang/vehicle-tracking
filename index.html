@@ -2074,7 +2074,7 @@ function invKey(c,m){ return 'i'+invHash([c.plate_key||c.plate, m.date||'', m.ty
 function invLabel(c,m){ return (String(c.plate||'').replace(/\D/g,'')+'_'+String(m.date||'').replace(/[^0-9]/g,'-')).slice(0,40); }
 function invViewsHtml(key){
   const list = INVOICE_INDEX[key]||[];
-  return list.map((f,i)=>`<a class="clear-btn" style="text-decoration:none;padding:3px 8px" href="${INVOICE_RAW_BASE+encodeURI(f.p)}" target="_blank" rel="noopener">👁 عرض${list.length>1?' '+(i+1):''}</a>`).join(' ');
+  return list.map((f,i)=>`<a class="clear-btn" style="text-decoration:none;padding:3px 8px" href="./${encodeURI(f.p)}" target="_blank" rel="noopener">👁 عرض${list.length>1?' '+(i+1):''}</a>`).join(' ');
 }
 function invCellHtml(c,m){
   const key=invKey(c,m);
@@ -2108,7 +2108,7 @@ document.addEventListener('change', async (e)=>{
     if(res.ok && j.ok){
       (INVOICE_INDEX[inp.dataset.key]=INVOICE_INDEX[inp.dataset.key]||[]).push({p:j.path,t:new Date().toISOString()});
       cell.querySelector('.inv-views').innerHTML=invViewsHtml(inp.dataset.key);
-      msg.textContent='✅ تم الرفع';
+      msg.textContent='✅ تم الرفع — زر العرض يشتغل بعد حوالي دقيقة';
     } else msg.textContent='تعذّر الرفع ('+(j.reason||res.status)+')';
   }catch(err){ msg.textContent='تعذّر الرفع'; }
   inp.value='';
