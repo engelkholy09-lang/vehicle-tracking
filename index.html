@@ -1184,7 +1184,7 @@ function parseHijri(str){
 function fmtGregShort(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function dateStatus(str, warnDays){
   warnDays = warnDays || 30;
-  if(!str || !str.trim()) return {level:'unknown', label:'غير متوفر'};
+  if(!str || !str.trim()) return {level:'unknown', label:'لا يوجد له تاريخ'};
   let d = parseDate(str);
   let shown = str;
   if(!d){
@@ -1214,7 +1214,7 @@ function computeDerived(list){
     c.__insurance = c.insurance_policy ? {level:'ok', label:'يوجد رقم بوليصة: '+c.insurance_policy} : {level:'danger', label:'لا يوجد بيانات تأمين'};
     c.__license = dateStatus(c.license_expiry, 30);
     c.__auth = dateStatus(c.auth_expiry, 30);
-    let latestInsp = {level:'unknown', label:'لا يوجد فحص مسجل'};
+    let latestInsp = {level:'unknown', label:'لا يوجد له تاريخ'};
     if(c.inspections && c.inspections.length){
       const withDates = c.inspections.filter(x=>x.expiry_date);
       if(withDates.length){
@@ -1692,7 +1692,7 @@ function driverChip(c){
   return c.driver ? `<span class="chip ok">لديها سائق</span>` : `<span class="chip warn">بدون سائق</span>`;
 }
 function statusChipFor(label, statusObj){
-  return `<span class="chip ${statusChipClass(statusObj.level)}">${statusIcon(statusObj.level)} ${label}${['ok','warn','danger'].includes(statusObj.level)?'':': غير مسجّل'}</span>`;
+  return `<span class="chip ${statusChipClass(statusObj.level)}">${statusIcon(statusObj.level)} ${label}${['ok','warn','danger'].includes(statusObj.level)?'':(statusObj.level==='unknown'?': لا يوجد له تاريخ':': '+esc(statusObj.label||''))}</span>`;
 }
 
 function renderGrid(list){
@@ -2206,10 +2206,10 @@ function buildModalPanes(c){
     <div class="info-grid">
       <div class="info-item"><div class="k">بوليصة التأمين</div><div class="v">${esc(c.insurance_policy)||'—'}</div></div>
       <div class="info-item"><div class="k">حالة التأمين</div><div class="v">${statusIcon(c.__insurance.level)} ${esc(c.__insurance.label)}</div></div>
-      <div class="info-item"><div class="k">تاريخ انتهاء رخصة السير</div><div class="v">${esc(c.license_expiry)||'—'}</div></div>
+      <div class="info-item"><div class="k">تاريخ انتهاء رخصة السير</div><div class="v">${esc(c.license_expiry)||'لا يوجد له تاريخ'}</div></div>
       <div class="info-item"><div class="k">حالة الرخصة</div><div class="v">${statusIcon(c.__license.level)} ${esc(c.__license.label)}</div></div>
-      <div class="info-item"><div class="k">تاريخ انتهاء التفويض</div><div class="v">${esc(c.auth_expiry)||'—'}</div></div>
-      <div class="info-item"><div class="k">تاريخ انتهاء الفحص (سلامة)</div><div class="v">${esc(c.inspection_note)||'—'}${c.__hasInsp?` <span class="chip ${statusChipClass(c.__inspection.level)}">${esc(c.__inspection.label)}</span>`:''}</div></div>
+      <div class="info-item"><div class="k">تاريخ انتهاء التفويض</div><div class="v">${esc(c.auth_expiry)||'لا يوجد له تاريخ'}</div></div>
+      <div class="info-item"><div class="k">تاريخ انتهاء الفحص (سلامة)</div><div class="v">${esc(c.inspection_note)||'لا يوجد له تاريخ'}${c.__hasInsp?` <span class="chip ${statusChipClass(c.__inspection.level)}">${esc(c.__inspection.label)}</span>`:''}</div></div>
       <div class="info-item"><div class="k">حالة التفويض</div><div class="v">${statusIcon(c.__auth.level)} ${esc(c.__auth.label)}</div></div>
       <div class="info-item"><div class="k">جهاز التتبع</div><div class="v">${esc(c.tracker)||'—'}</div></div>
       <div class="info-item"><div class="k">آخر حالة فحص مسجلة</div><div class="v">${statusIcon(c.__inspection.level)} ${esc(c.__inspection.label)}</div></div>
