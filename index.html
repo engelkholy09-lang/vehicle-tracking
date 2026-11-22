@@ -2147,6 +2147,75 @@ function monthReportHtml(ym, R){
     ${tbl(['التاريخ','اللوحة','المركبة','الحركة','الموظف','المشروع','العداد'],
       R.hand.map(({c,h})=>`<tr>${td(esc(h.date),1)}${td(esc(c.plate),1)}${td(esc(c.make+' '+c.model))}${td(esc(h.action_type))}${td(esc(h.employee))}${td(esc(h.project))}${td(esc(h.odometer))}</tr>`))}`;
 }
+
+function monthPrintDoc(ym, R){
+  const money = n => Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const logo = (document.querySelector('.brand-logo')||{}).src || '';
+  const now = new Date(); const printed = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  const e = v => esc(v==null?'':v);
+  const maintRows = R.maint.map(({c,m},i)=>`<tr><td class="n">${i+1}</td><td class="nw">${e(m.date)}</td><td class="plate">${e(c.plate)}</td><td>${e(c.make+' '+c.model)}</td><td class="wide">${e(m.type)}</td><td>${e(m.employee)}</td><td class="num">${m.odometer?Number(m.odometer).toLocaleString('en-US'):'—'}</td><td class="num b">${m.price?money(m.price):'—'}</td><td>${e(c.project)}</td></tr>`).join('');
+  const handRows = R.hand.map(({c,h},i)=>`<tr><td class="n">${i+1}</td><td class="nw">${e(h.date)}</td><td class="plate">${e(c.plate)}</td><td>${e(c.make+' '+c.model)}</td><td><span class="tag ${h.action_type==='استلام'?'in':'out'}">${e(h.action_type)}</span></td><td>${e(h.employee)}</td><td>${e(h.project)}</td><td class="num">${h.odometer?Number(h.odometer).toLocaleString('en-US'):'—'}</td></tr>`).join('');
+  const sumRows = list => list.map(p=>`<tr><td>${e(p.name)}</td><td class="num">${p.n}</td><td class="num b">${money(p.cost)}</td><td><div class="bar"><i style="width:${R.cost?Math.round(p.cost/R.cost*100):0}%"></i></div></td></tr>`).join('');
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير أعمال ${monthTitle(ym)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @page{size:A4 landscape;margin:10mm 10mm 12mm}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#1c2733;margin:0;font-size:11.5px}
+  .head{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#0F2B46,#16486f);color:#fff;border-radius:12px;padding:16px 22px}
+  .head h1{margin:0;font-size:24px;font-weight:800}.head .sub{opacity:.85;font-size:12px;margin-top:2px}
+  .head .meta{text-align:left;font-size:11px;opacity:.9;line-height:1.7}
+  .logo{background:#fff;border-radius:10px;padding:6px 10px;margin-inline-end:16px}.logo img{height:38px;display:block}
+  .gold{height:4px;background:#C9A227;border-radius:2px;margin:10px 0 14px;width:120px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  .kpi{border:1px solid #e2e8f0;border-top:4px solid #127C8A;border-radius:10px;padding:10px 12px;background:#f8fafc}
+  .kpi .v{font-size:22px;font-weight:800;color:#0F2B46}.kpi .l{font-size:11px;color:#64748b}
+  .kpi.gold-top{border-top-color:#C9A227}.kpi.blue{border-top-color:#2E86C1}.kpi.green{border-top-color:#1E8449}
+  h2{font-size:14px;color:#0F2B46;margin:14px 0 6px;display:flex;align-items:center;gap:8px}
+  h2:before{content:'';width:5px;height:16px;background:#127C8A;border-radius:3px;display:inline-block}
+  table{width:100%;border-collapse:collapse}
+  th{background:#0F2B46;color:#fff;font-weight:600;padding:7px 8px;text-align:right;font-size:11px;white-space:nowrap}
+  td{padding:6px 8px;border-bottom:1px solid #e8edf2;vertical-align:top}
+  tbody tr:nth-child(even) td{background:#f6f9fb}
+  tfoot td{background:#eef4f7;font-weight:800;color:#0F2B46;border-top:2px solid #127C8A}
+  .n{color:#94a3b8;width:26px}.nw{white-space:nowrap}.plate{font-weight:800;color:#0F2B46;white-space:nowrap}
+  .num{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums}.b{font-weight:800}.wide{min-width:200px}
+  .tag{padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700}.tag.in{background:#d5f5e3;color:#1e8449}.tag.out{background:#d6eaf8;color:#1f618d}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .bar{height:7px;background:#eef2f6;border-radius:4px;min-width:70px}.bar i{display:block;height:7px;background:#127C8A;border-radius:4px}
+  .empty{color:#94a3b8;padding:8px 0}
+  .sign{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:26px}
+  .sign div{border-top:1px solid #94a3b8;padding-top:6px;text-align:center;color:#475569;font-size:11px}
+  .foot{margin-top:14px;display:flex;justify-content:space-between;color:#94a3b8;font-size:10px;border-top:1px solid #e2e8f0;padding-top:6px}
+  .avoid{page-break-inside:avoid}
+  thead{display:table-header-group}
+</style></head><body>
+  <div class="head">
+    <div style="display:flex;align-items:center">${logo?`<div class="logo"><img src="${logo}"></div>`:''}
+      <div><h1>تقرير أعمال ${monthTitle(ym)}</h1><div class="sub">شركة خارطة الإنماء للاستشارات الهندسية — منصة متابعة أسطول المركبات</div></div></div>
+    <div class="meta">الفترة: ${ym}-01 إلى نهاية الشهر<br>تاريخ الإصدار: ${printed}${R.filtered?'<br>⚠ محسوب على المركبات المفلترة':''}</div>
+  </div>
+  <div class="gold"></div>
+  <div class="kpis">
+    <div class="kpi"><div class="v">${R.maint.length}</div><div class="l">عمليات صيانة</div></div>
+    <div class="kpi gold-top"><div class="v">${money(R.cost)} <span style="font-size:13px">ر.س</span></div><div class="l">إجمالي تكلفة الصيانة</div></div>
+    <div class="kpi green"><div class="v">${R.cars}</div><div class="l">مركبات تمت صيانتها</div></div>
+    <div class="kpi blue"><div class="v">${R.hand.length}</div><div class="l">حركات استلام / تسليم</div></div>
+  </div>
+  <h2>أعمال الصيانة</h2>
+  ${R.maint.length?`<table><thead><tr><th>#</th><th>التاريخ</th><th>اللوحة</th><th>المركبة</th><th>نوع الصيانة</th><th>الموظف</th><th>العداد</th><th>التكلفة (ر.س)</th><th>المشروع</th></tr></thead><tbody>${maintRows}</tbody>
+    <tfoot><tr><td colspan="7">الإجمالي</td><td class="num">${money(R.cost)}</td><td></td></tr></tfoot></table>`:'<div class="empty">لا توجد أعمال صيانة في هذا الشهر</div>'}
+  <div class="two avoid">
+    <div><h2>حسب المشروع</h2>${R.byProj.length?`<table><thead><tr><th>المشروع</th><th>العمليات</th><th>التكلفة</th><th>النسبة</th></tr></thead><tbody>${sumRows(R.byProj)}</tbody></table>`:'<div class="empty">—</div>'}</div>
+    <div><h2>حسب الموقع</h2>${R.byLoc.length?`<table><thead><tr><th>الموقع</th><th>العمليات</th><th>التكلفة</th><th>النسبة</th></tr></thead><tbody>${sumRows(R.byLoc)}</tbody></table>`:'<div class="empty">—</div>'}</div>
+  </div>
+  <h2>حركات الاستلام والتسليم</h2>
+  ${R.hand.length?`<table><thead><tr><th>#</th><th>التاريخ</th><th>اللوحة</th><th>المركبة</th><th>الحركة</th><th>الموظف</th><th>المشروع</th><th>العداد</th></tr></thead><tbody>${handRows}</tbody></table>`:'<div class="empty">لا توجد حركات استلام أو تسليم في هذا الشهر</div>'}
+  <div class="sign avoid"><div>أعدّه</div><div>راجعه</div><div>اعتمده</div></div>
+  <div class="foot"><span>© شركة خارطة الإنماء للاستشارات الهندسية</span><span>تقرير آلي من منصة متابعة أسطول المركبات</span></div>
+</body></html>`;
+}
+
 function openMonthReport(ym){
   const R = monthReportData(ym);
   let ov = document.getElementById('monthOverlay');
@@ -2162,10 +2231,8 @@ function openMonthReport(ym){
   ov.querySelector('#mrClose').onclick = ()=>ov.classList.remove('show');
   ov.querySelector('#mrPrint').onclick = ()=>{
     const w = window.open('', '_blank'); if(!w) return;
-    w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير أعمال ${monthTitle(ym)}</title>
-      <style>body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#1b2430}h1{color:#0F2B46;margin:0 0 4px}h4{color:#0F2B46}.empty-note{color:#777;font-size:12px}@page{size:A4 landscape;margin:12mm}</style></head>
-      <body><h1>تقرير أعمال ${monthTitle(ym)}</h1><div style="color:#127C8A;margin-bottom:14px">شركة خارطة الإنماء للاستشارات الهندسية — منصة متابعة أسطول المركبات</div>${monthReportHtml(ym, R)}</body></html>`);
-    w.document.close(); setTimeout(()=>{ w.focus(); w.print(); }, 400);
+    w.document.write(monthPrintDoc(ym, R));
+    w.document.close(); setTimeout(()=>{ w.focus(); w.print(); }, 900);
   };
   ov.querySelector('#mrExcel').onclick = ()=>{
     const wb = XLSX.utils.book_new();
