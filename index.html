@@ -2271,14 +2271,10 @@ function openMonthReport(ym){
 
 
 /* ================= REPORTS TAB ================= */
-const RPT = { custody:'', scope:'open', from:'', to:'', excluded:new Set() };
+const RPT = { custody:'', from:'', to:'', excluded:new Set() };
 function rptMoney(n){ return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 function custodyRows(){
-  const R = REPORT || {}; const ex = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
-  let rows = ex;
-  if(RPT.scope==='open') rows = ex.filter(e=>!e.stno);
-  else if(RPT.scope==='all') rows = ex;
-  else rows = ex.filter(e=>String(e.stno)===String(RPT.scope));
+  const R = REPORT || {}; let rows = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
   if(RPT.from){ const f=parseDate(RPT.from); rows = rows.filter(e=>{const d=parseDate(e.date); return d && d>=f;}); }
   if(RPT.to){ const t=parseDate(RPT.to); rows = rows.filter(e=>{const d=parseDate(e.date); return d && d<=t;}); }
   return rows.slice().sort((a,b)=>(parseDate(a.date)||0)-(parseDate(b.date)||0));
@@ -2288,19 +2284,16 @@ function custodySummary(rowsIncl){
   const ex = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
   const amount = Number(c.amount)||0;
   const thisSum = rowsIncl.reduce((t,e)=>t+(Number(e.cost)||0),0);
-  const inThis = new Set(rowsIncl);
-  let prev;
-  if(/^\d+$/.test(String(RPT.scope))) prev = ex.filter(e=>e.stno && Number(e.stno)<Number(RPT.scope)).reduce((t,e)=>t+(Number(e.cost)||0),0);
-  else if(RPT.scope==='open') prev = ex.filter(e=>e.stno).reduce((t,e)=>t+(Number(e.cost)||0),0);
-  else prev = ex.filter(e=>!inThis.has(e) && parseDate(e.date) && rowsIncl.length && parseDate(e.date) < (parseDate(rowsIncl[0].date)||0)).reduce((t,e)=>t+(Number(e.cost)||0),0);
-  return { c, amount, prev, thisSum, remaining: amount - prev - thisSum, spentAll: ex.reduce((t,e)=>t+(Number(e.cost)||0),0) };
+  // previous spend = everything on this custody dated before the chosen start date
+  const f = RPT.from ? parseDate(RPT.from) : null;
+  const prev = f ? ex.filter(e=>{const d=parseDate(e.date); return d && d<f;}).reduce((t,e)=>t+(Number(e.cost)||0),0) : 0;
+  return { c, amount, prev, thisSum, remaining: amount - prev - thisSum };
 }
 function renderReports(){
   const box = document.getElementById('reportsBody'); if(!box) return;
   const R = REPORT || {}; const cs = R.custodies || [];
   if(cs.length && !RPT.custody) RPT.custody = cs[0].id;
   const ex = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
-  const stnos = [...new Set(ex.map(e=>e.stno).filter(Boolean))].sort((a,b)=>Number(a)-Number(b));
   const months = [...new Set(CARS.flatMap(c=>c.maintenance.map(m=>{const d=parseDate(m.date); return d? d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0') : null;})).filter(Boolean))].sort().reverse();
   const rows = RPT.custody ? custodyRows() : [];
   const incl = rows.filter(e=>!RPT.excluded.has(e));
@@ -2312,10 +2305,6 @@ function renderReports(){
     ${!cs.length ? `<div class="empty-note">لا توجد عهد مسجلة في ملف الإكسيل بعد. سجّل العهدة من شاشة الإدخال في الإكسيل (💼 تسجيل عهدة جديدة) واربط المصروفات بها، ثم ارفع الملف من «🔄 تحديث البيانات».</div>` : `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
       <label>رقم العهدة<br><select id="rpCust" ${sel}>${cs.map(c=>`<option value="${esc(c.id)}" ${c.id===RPT.custody?'selected':''}>${esc(c.id)} — ${esc(c.holder)}</option>`).join('')}</select></label>
-      <label>المصروفات<br><select id="rpScope" ${sel}>
-        <option value="open" ${RPT.scope==='open'?'selected':''}>اللي لسه ما دخلتش بيان</option>
-        ${stnos.map(n=>`<option value="${esc(n)}" ${String(RPT.scope)===String(n)?'selected':''}>بيان رقم ${esc(n)}</option>`).join('')}
-        <option value="all" ${RPT.scope==='all'?'selected':''}>كل مصروفات العهدة</option></select></label>
       <label>من تاريخ<br><input type="date" id="rpFrom" value="${esc(RPT.from)}" ${sel}></label>
       <label>إلى تاريخ<br><input type="date" id="rpTo" value="${esc(RPT.to)}" ${sel}></label>
       <button class="clear-btn" id="rpPrint" style="background:#0F2B46;color:#fff">🖨️ طباعة / PDF</button>
@@ -2324,9 +2313,9 @@ function renderReports(){
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
       ${[['قيمة العهدة',S.amount],['مصروف سابق',S.prev],['مصروف هذا البيان',S.thisSum],['المتبقي',S.remaining]].map(([l,v],i)=>`<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center;border-top:3px solid ${i===3?'#C9A227':'#127C8A'}"><div style="font-size:20px;font-weight:800;color:${i===3&&v<0?'#c0392b':'var(--primary)'}">${rptMoney(v)}</div><div style="font-size:12px;color:var(--muted)">${l} (ر.س)</div></div>`).join('')}
     </div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${rows.length} مصروف — شيل العلامة من أي سطر مش عايزه يظهر في البيان المطبوع</div>
-    <div style="overflow-x:auto"><table style="min-width:0;width:100%;font-size:13px"><thead><tr><th>✓</th><th>م</th><th>التاريخ</th><th>رقم المستند</th><th>البيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المستلم</th><th>البيان رقم</th></tr></thead>
-    <tbody>${rows.length? rows.map((e,i)=>`<tr style="${RPT.excluded.has(e)?'opacity:.4;text-decoration:line-through':''}"><td><input type="checkbox" data-rpi="${i}" ${RPT.excluded.has(e)?'':'checked'}></td><td>${i+1}</td><td style="white-space:nowrap">${esc(e.date)}</td><td>${esc(e.doc)}</td><td style="white-space:normal">${esc(e.desc)}</td><td style="font-weight:700;white-space:nowrap">${e.cost?rptMoney(e.cost):'—'}</td><td style="white-space:nowrap">${esc(e.plate)||'-'}</td><td>${esc(e.employee)}</td><td>${esc(e.stno)||'—'}</td></tr>`).join('') : `<tr><td colspan="9" class="empty-state">لا توجد مصروفات بهذه الاختيارات</td></tr>`}</tbody></table></div>`}
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${rows.length} مصروف${RPT.from?'':' — حدد «من تاريخ» عشان المصروف السابق يتحسب'} • شيل العلامة من أي سطر مش عايزه في البيان</div>
+    <div style="overflow-x:auto"><table style="min-width:0;width:100%;font-size:13px"><thead><tr><th>✓</th><th>م</th><th>التاريخ</th><th>رقم المستند</th><th>البيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المستلم</th><th>التصنيف</th></tr></thead>
+    <tbody>${rows.length? rows.map((e,i)=>`<tr style="${RPT.excluded.has(e)?'opacity:.4;text-decoration:line-through':''}"><td><input type="checkbox" data-rpi="${i}" ${RPT.excluded.has(e)?'':'checked'}></td><td>${i+1}</td><td style="white-space:nowrap">${esc(e.date)}</td><td>${esc(e.doc)}</td><td style="white-space:normal">${esc(e.desc)}</td><td style="font-weight:700;white-space:nowrap">${e.cost?rptMoney(e.cost):'—'}</td><td style="white-space:nowrap">${esc(e.plate)||'-'}</td><td>${esc(e.employee)}</td><td>${esc(e.category)||'—'}</td></tr>`).join('') : `<tr><td colspan="9" class="empty-state">لا توجد مصروفات بهذه الاختيارات</td></tr>`}</tbody></table></div>`}
   </div>
   <div class="chart-card">
     <h3>📅 تقرير أعمال شهري</h3>
@@ -2336,8 +2325,7 @@ function renderReports(){
     </div>
   </div>`;
   const on = (id, ev, fn) => { const el=document.getElementById(id); if(el) el.addEventListener(ev, fn); };
-  on('rpCust','change',e=>{ RPT.custody=e.target.value; RPT.scope='open'; RPT.excluded=new Set(); renderReports(); });
-  on('rpScope','change',e=>{ RPT.scope=e.target.value; RPT.excluded=new Set(); renderReports(); });
+  on('rpCust','change',e=>{ RPT.custody=e.target.value; RPT.excluded=new Set(); renderReports(); });
   on('rpFrom','change',e=>{ RPT.from=e.target.value; RPT.excluded=new Set(); renderReports(); });
   on('rpTo','change',e=>{ RPT.to=e.target.value; RPT.excluded=new Set(); renderReports(); });
   box.querySelectorAll('[data-rpi]').forEach(cb=>cb.addEventListener('change',()=>{ const e=rows[Number(cb.dataset.rpi)]; if(cb.checked) RPT.excluded.delete(e); else RPT.excluded.add(e); renderReports(); }));
@@ -2345,7 +2333,7 @@ function renderReports(){
   on('rpXlsx','click',()=>custodyXlsx(incl, S));
   on('rpMonthBtn','click',()=>{ const m=document.getElementById('rpMonth').value; if(m) openMonthReport(m); });
 }
-function custodyTitle(){ return `بيان مصروفات / عهدة رقم ${RPT.custody}` + (/^\d+$/.test(String(RPT.scope)) ? ` — بيان رقم ${RPT.scope}` : ''); }
+function custodyTitle(){ return `بيان مصروفات / عهدة رقم ${RPT.custody}`; }
 function custodyPeriod(rows){ const ds=rows.map(e=>parseDate(e.date)).filter(Boolean).sort((a,b)=>a-b); if(!ds.length) return ''; const f=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); return `من ${f(ds[0])} إلى ${f(ds[ds.length-1])}`; }
 function custodyPrintDoc(rows, S){
   const logo = (document.querySelector('.brand-logo')||{}).src || ''; const e = v=>esc(v==null?'':v);
@@ -2388,7 +2376,7 @@ function custodyXlsx(rows, S){
   const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!views']=[{RTL:true}];
   ws['!cols'] = [{wch:6},{wch:12},{wch:14},{wch:46},{wch:12},{wch:16},{wch:22},{wch:18},{wch:20}];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'بيان عهدة'); wb.Workbook={Views:[{RTL:true}]};
-  XLSX.writeFile(wb, `custody_${String(RPT.custody).replace(/[^\w-]/g,'')}_${/^\d+$/.test(String(RPT.scope))?'st'+RPT.scope:RPT.scope}.xlsx`);
+  XLSX.writeFile(wb, `custody_${String(RPT.custody).replace(/[^\w-]/g,'')}_${RPT.from||'start'}_${RPT.to||'end'}.xlsx`);
 }
 
 /* ================= DATA QUALITY TAB ================= */
