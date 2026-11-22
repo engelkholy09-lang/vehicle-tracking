@@ -283,6 +283,7 @@ tbody tr:hover{background:var(--surface2);}
     <button class="tab-btn" data-tab="fleet">المركبات</button>
     <button class="tab-btn" data-tab="alerts">التنبيهات</button>
     <button class="tab-btn" data-tab="analytics">الإحصائيات</button>
+    <button class="tab-btn" data-tab="reports">التقارير</button>
     <button class="tab-btn" data-tab="quality">جودة البيانات</button>
   </div>
   <div class="data-source-bar">
@@ -468,6 +469,12 @@ tbody tr:hover{background:var(--surface2);}
   </div>
 
   <!-- ===== DATA QUALITY TAB ===== -->
+  <div class="tab-pane" id="tab-reports" style="display:none;">
+    <h2 class="page-title">التقارير</h2>
+    <p class="page-desc">اختار التقرير، اعرضه، واطبعه PDF أو نزّله Excel.</p>
+    <div id="reportsBody"></div>
+  </div>
+
   <div class="tab-pane" id="tab-quality" style="display:none;">
     <h2 class="page-title">جودة البيانات</h2>
     <p class="page-desc">تقرير تحقق شامل عن اكتمال الربط بين الشيتات، ونسب اكتمال البيانات. اضغط على أي رقم لعرض السجلات المتأثرة.</p>
@@ -834,6 +841,22 @@ function buildDashboardDataV2(workbook){
           notes:cleanVal(hg(row,'ملاحظات')), prev_receiver:cleanVal(hg(row,'المستلم السابق')) };
         if(c) c.handovers.push(rec); else unmatched.push({sheet:'استلام وتسليم', row:r+1, plate:num, note:'رقم اللوحة غير موجود في بيانات السيارات'});
       } } }
+  // custody register + all expenses (incl. rows without a plate) for the reports tab
+  const custodies = [], expenses = [];
+  const km = readSheetMatrix(workbook, 'العهد');
+  if(km){ const KH = v2FindHeader(km, ['رقم العهدة','المستلم']);
+    if(KH){ const kg=(row,n)=>{const i=KH.idx(n); return i<0?'':row[i];};
+      for(let r=KH.row+1; r<km.length; r++){ const row=km[r]||[]; const id=cleanVal(kg(row,'رقم العهدة')); if(!id) continue;
+        custodies.push({ id, holder:cleanVal(kg(row,'المستلم')), project:cleanVal(kg(row,'المشروع')), manager:cleanVal(kg(row,'المدير المباشر')),
+          amount:v2Num(kg(row,'قيمة العهدة')), date:cleanVal(kg(row,'تاريخ الاستلام')), notes:cleanVal(kg(row,'ملاحظات')) }); } } }
+  if(mm){ const MH = v2FindHeader(mm, ['نوع الصيانة','رقم العهدة']);
+    if(MH){ const mg=(row,n)=>{const i=MH.idx(n); return i<0?'':row[i];};
+      for(let r=MH.row+1; r<mm.length; r++){ const row=mm[r]||[]; const cust=cleanVal(mg(row,'رقم العهدة')); if(!cust) continue;
+        const num=cleanVal(mg(row,'رقم اللوحة')); const car = num? findCar(num, cleanVal(mg(row,'حروف اللوحة'))) : null;
+        expenses.push({ id:cleanVal(mg(row,'م')), date:cleanVal(mg(row,'تاريخ الصيانة')), doc:cleanVal(mg(row,'رقم المستند')), desc:cleanVal(mg(row,'نوع الصيانة')),
+          cost:v2Num(mg(row,'التكلفة (ر.س)')), plate: car? car.plate : (num? (num+' '+cleanVal(mg(row,'حروف اللوحة'))).trim() : ''),
+          project: car? car.project : '', employee:cleanVal(mg(row,'اسم الموظف')), notes:cleanVal(mg(row,'ملاحظات')),
+          custody:cust, category:cleanVal(mg(row,'التصنيف')), stno:cleanVal(mg(row,'رقم البيان')) }); } } }
   const carsList = [...cars.values()];
   carsList.forEach(c=>{
     c.maintenance_count = c.maintenance.length;
@@ -853,7 +876,7 @@ function buildDashboardDataV2(workbook){
     cars_with_conflicts: [], resolved_sheets: {cars:'بيانات السيارات', maintenance:'الصيانة', handover:'استلام وتسليم'}, import_warnings: errors,
     raw_handover_rows: rawHand, raw_invoice_rows: 0, total_handovers: carsList.reduce((a,c)=>a+c.handovers_count,0), total_invoices: 0,
     no_tracking_count: carsList.filter(c=>c.no_tracking).length, no_tracking_source_total: carsList.filter(c=>c.no_tracking).length,
-    administrative_handover_count: 0, format: 'v2'
+    administrative_handover_count: 0, format: 'v2', custodies, expenses
   };
   return { cars: carsList, report, errors, resolvedSheets: report.resolved_sheets };
 }
@@ -1343,6 +1366,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     if(btn.dataset.tab==='alerts') renderAlerts();
     if(btn.dataset.tab==='analytics') renderAnalytics();
     if(btn.dataset.tab==='quality') renderQuality();
+    if(btn.dataset.tab==='reports') renderReports();
   });
 });
 
@@ -2243,6 +2267,128 @@ function openMonthReport(ym){
     wb.Workbook = { Views:[{RTL:true}] };
     XLSX.writeFile(wb, `fleet_month_${ym}.xlsx`);
   };
+}
+
+
+/* ================= REPORTS TAB ================= */
+const RPT = { custody:'', scope:'open', from:'', to:'', excluded:new Set() };
+function rptMoney(n){ return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function custodyRows(){
+  const R = REPORT || {}; const ex = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
+  let rows = ex;
+  if(RPT.scope==='open') rows = ex.filter(e=>!e.stno);
+  else if(RPT.scope==='all') rows = ex;
+  else rows = ex.filter(e=>String(e.stno)===String(RPT.scope));
+  if(RPT.from){ const f=parseDate(RPT.from); rows = rows.filter(e=>{const d=parseDate(e.date); return d && d>=f;}); }
+  if(RPT.to){ const t=parseDate(RPT.to); rows = rows.filter(e=>{const d=parseDate(e.date); return d && d<=t;}); }
+  return rows.slice().sort((a,b)=>(parseDate(a.date)||0)-(parseDate(b.date)||0));
+}
+function custodySummary(rowsIncl){
+  const R = REPORT || {}; const c = (R.custodies||[]).find(x=>x.id===RPT.custody) || {};
+  const ex = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
+  const amount = Number(c.amount)||0;
+  const thisSum = rowsIncl.reduce((t,e)=>t+(Number(e.cost)||0),0);
+  const inThis = new Set(rowsIncl);
+  let prev;
+  if(/^\d+$/.test(String(RPT.scope))) prev = ex.filter(e=>e.stno && Number(e.stno)<Number(RPT.scope)).reduce((t,e)=>t+(Number(e.cost)||0),0);
+  else if(RPT.scope==='open') prev = ex.filter(e=>e.stno).reduce((t,e)=>t+(Number(e.cost)||0),0);
+  else prev = ex.filter(e=>!inThis.has(e) && parseDate(e.date) && rowsIncl.length && parseDate(e.date) < (parseDate(rowsIncl[0].date)||0)).reduce((t,e)=>t+(Number(e.cost)||0),0);
+  return { c, amount, prev, thisSum, remaining: amount - prev - thisSum, spentAll: ex.reduce((t,e)=>t+(Number(e.cost)||0),0) };
+}
+function renderReports(){
+  const box = document.getElementById('reportsBody'); if(!box) return;
+  const R = REPORT || {}; const cs = R.custodies || [];
+  if(cs.length && !RPT.custody) RPT.custody = cs[0].id;
+  const ex = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
+  const stnos = [...new Set(ex.map(e=>e.stno).filter(Boolean))].sort((a,b)=>Number(a)-Number(b));
+  const months = [...new Set(CARS.flatMap(c=>c.maintenance.map(m=>{const d=parseDate(m.date); return d? d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0') : null;})).filter(Boolean))].sort().reverse();
+  const rows = RPT.custody ? custodyRows() : [];
+  const incl = rows.filter(e=>!RPT.excluded.has(e));
+  const S = RPT.custody ? custodySummary(incl) : null;
+  const sel = 'style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;min-width:150px"';
+  box.innerHTML = `
+  <div class="chart-card" style="margin-bottom:16px">
+    <h3>🧾 بيان مصروفات عهدة</h3>
+    ${!cs.length ? `<div class="empty-note">لا توجد عهد مسجلة في ملف الإكسيل بعد. سجّل العهدة من شاشة الإدخال في الإكسيل (💼 تسجيل عهدة جديدة) واربط المصروفات بها، ثم ارفع الملف من «🔄 تحديث البيانات».</div>` : `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+      <label>رقم العهدة<br><select id="rpCust" ${sel}>${cs.map(c=>`<option value="${esc(c.id)}" ${c.id===RPT.custody?'selected':''}>${esc(c.id)} — ${esc(c.holder)}</option>`).join('')}</select></label>
+      <label>المصروفات<br><select id="rpScope" ${sel}>
+        <option value="open" ${RPT.scope==='open'?'selected':''}>اللي لسه ما دخلتش بيان</option>
+        ${stnos.map(n=>`<option value="${esc(n)}" ${String(RPT.scope)===String(n)?'selected':''}>بيان رقم ${esc(n)}</option>`).join('')}
+        <option value="all" ${RPT.scope==='all'?'selected':''}>كل مصروفات العهدة</option></select></label>
+      <label>من تاريخ<br><input type="date" id="rpFrom" value="${esc(RPT.from)}" ${sel}></label>
+      <label>إلى تاريخ<br><input type="date" id="rpTo" value="${esc(RPT.to)}" ${sel}></label>
+      <button class="clear-btn" id="rpPrint" style="background:#0F2B46;color:#fff">🖨️ طباعة / PDF</button>
+      <button class="clear-btn" id="rpXlsx">📥 Excel</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+      ${[['قيمة العهدة',S.amount],['مصروف سابق',S.prev],['مصروف هذا البيان',S.thisSum],['المتبقي',S.remaining]].map(([l,v],i)=>`<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center;border-top:3px solid ${i===3?'#C9A227':'#127C8A'}"><div style="font-size:20px;font-weight:800;color:${i===3&&v<0?'#c0392b':'var(--primary)'}">${rptMoney(v)}</div><div style="font-size:12px;color:var(--muted)">${l} (ر.س)</div></div>`).join('')}
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${rows.length} مصروف — شيل العلامة من أي سطر مش عايزه يظهر في البيان المطبوع</div>
+    <div style="overflow-x:auto"><table style="min-width:0;width:100%;font-size:13px"><thead><tr><th>✓</th><th>م</th><th>التاريخ</th><th>رقم المستند</th><th>البيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المستلم</th><th>البيان رقم</th></tr></thead>
+    <tbody>${rows.length? rows.map((e,i)=>`<tr style="${RPT.excluded.has(e)?'opacity:.4;text-decoration:line-through':''}"><td><input type="checkbox" data-rpi="${i}" ${RPT.excluded.has(e)?'':'checked'}></td><td>${i+1}</td><td style="white-space:nowrap">${esc(e.date)}</td><td>${esc(e.doc)}</td><td style="white-space:normal">${esc(e.desc)}</td><td style="font-weight:700;white-space:nowrap">${e.cost?rptMoney(e.cost):'—'}</td><td style="white-space:nowrap">${esc(e.plate)||'-'}</td><td>${esc(e.employee)}</td><td>${esc(e.stno)||'—'}</td></tr>`).join('') : `<tr><td colspan="9" class="empty-state">لا توجد مصروفات بهذه الاختيارات</td></tr>`}</tbody></table></div>`}
+  </div>
+  <div class="chart-card">
+    <h3>📅 تقرير أعمال شهري</h3>
+    <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+      <label>الشهر<br><select id="rpMonth" ${sel}>${months.map(m=>`<option value="${m}">${monthTitle(m)}</option>`).join('')}</select></label>
+      <button class="clear-btn" id="rpMonthBtn" style="background:#0F2B46;color:#fff">عرض التقرير</button>
+    </div>
+  </div>`;
+  const on = (id, ev, fn) => { const el=document.getElementById(id); if(el) el.addEventListener(ev, fn); };
+  on('rpCust','change',e=>{ RPT.custody=e.target.value; RPT.scope='open'; RPT.excluded=new Set(); renderReports(); });
+  on('rpScope','change',e=>{ RPT.scope=e.target.value; RPT.excluded=new Set(); renderReports(); });
+  on('rpFrom','change',e=>{ RPT.from=e.target.value; RPT.excluded=new Set(); renderReports(); });
+  on('rpTo','change',e=>{ RPT.to=e.target.value; RPT.excluded=new Set(); renderReports(); });
+  box.querySelectorAll('[data-rpi]').forEach(cb=>cb.addEventListener('change',()=>{ const e=rows[Number(cb.dataset.rpi)]; if(cb.checked) RPT.excluded.delete(e); else RPT.excluded.add(e); renderReports(); }));
+  on('rpPrint','click',()=>{ const w=window.open('','_blank'); if(!w) return; w.document.write(custodyPrintDoc(incl, S)); w.document.close(); setTimeout(()=>{w.focus(); w.print();}, 900); });
+  on('rpXlsx','click',()=>custodyXlsx(incl, S));
+  on('rpMonthBtn','click',()=>{ const m=document.getElementById('rpMonth').value; if(m) openMonthReport(m); });
+}
+function custodyTitle(){ return `بيان مصروفات / عهدة رقم ${RPT.custody}` + (/^\d+$/.test(String(RPT.scope)) ? ` — بيان رقم ${RPT.scope}` : ''); }
+function custodyPeriod(rows){ const ds=rows.map(e=>parseDate(e.date)).filter(Boolean).sort((a,b)=>a-b); if(!ds.length) return ''; const f=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); return `من ${f(ds[0])} إلى ${f(ds[ds.length-1])}`; }
+function custodyPrintDoc(rows, S){
+  const logo = (document.querySelector('.brand-logo')||{}).src || ''; const e = v=>esc(v==null?'':v);
+  const body = rows.map((x,i)=>`<tr><td>${i+1}</td><td class="nw">${e(x.date)}</td><td>${e(x.doc)}</td><td class="desc">${e(x.desc)}</td><td class="num">${x.cost?rptMoney(x.cost):'—'}</td><td class="nw plate">${x.plate?'( '+e(x.plate)+' )':'-'}</td><td>${e(x.project||S.c.project)}</td><td>${e(x.employee)}</td><td>${e(x.notes)}</td></tr>`).join('');
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${e(custodyTitle())}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#1c2733;margin:0;font-size:11px}
+.top{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0F2B46;padding-bottom:8px}
+.co{font-size:16px;font-weight:800;color:#0F2B46;letter-spacing:.5px}.en{font-size:11px;font-weight:700;color:#34495e}
+.top img{height:52px}
+.band{background:#d9dee4;font-size:15px;font-weight:800;color:#0F2B46;padding:7px 12px;margin:10px 0 6px;border-right:6px solid #127C8A}
+.info{display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;font-weight:700;font-size:12px;margin-bottom:8px}.info span{color:#64748b;font-weight:600}
+table{width:100%;border-collapse:collapse}th{background:#bfc9d3;color:#000;font-weight:700;padding:6px;border:1px solid #7f8c8d;font-size:11px}
+td{border:1px solid #9aa5b1;padding:5px 6px;text-align:center;vertical-align:top}td.desc{text-align:right;min-width:190px}td.num{font-weight:800;white-space:nowrap}
+td.nw{white-space:nowrap}td.plate{font-weight:700;color:#0F2B46}tbody tr:nth-child(even) td{background:#f5f7f9}
+tfoot td{background:#d9dee4;font-weight:800;font-size:12.5px;color:#0F2B46;border-bottom:2px solid #0F2B46}
+.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}.sum div{border:1px solid #cfd8e0;border-top:4px solid #127C8A;border-radius:8px;text-align:center;padding:6px;background:#f8fafc}
+.sum div.g{border-top-color:#C9A227}.sum b{display:block;font-size:15px;color:#0F2B46}.sum i{font-style:normal;font-size:10.5px;color:#64748b}
+.sign{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:34px;text-align:center;font-weight:700;color:#0F2B46}.sign small{display:block;color:#94a3b8;font-weight:400;margin-top:26px}
+thead{display:table-header-group}.avoid{page-break-inside:avoid}</style></head><body>
+<div class="top"><div><div class="co">شـركـة خـارطـة الإنـمـاء للاسـتـشـارات الـهـنـدسـيـة</div><div class="en">Namaa Map For Consulting Engineers Company</div></div>${logo?`<img src="${logo}">`:''}</div>
+<div class="band">${e(custodyTitle())}</div>
+<div class="info"><div><span>اسم مستلم العهدة /</span> ${e(S.c.holder)}</div><div><span>المدير المباشر /</span> ${e(S.c.manager)}</div>
+<div><span>اسم المشروع /</span> ${e(S.c.project)}</div><div><span>الفترة /</span> ${e(custodyPeriod(rows))}</div></div>
+<table><thead><tr><th>م</th><th>التاريخ</th><th>رقم المستند</th><th>بيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المشروع</th><th>المستلم</th><th>ملاحظات</th></tr></thead>
+<tbody>${body||'<tr><td colspan="9">لا توجد مصروفات</td></tr>'}</tbody><tfoot><tr><td colspan="4">الإجمالي</td><td>${rptMoney(S.thisSum)}</td><td colspan="4"></td></tr></tfoot></table>
+<div class="sum avoid"><div><b>${rptMoney(S.amount)}</b><i>قيمة العهدة</i></div><div><b>${rptMoney(S.prev)}</b><i>مصروف سابق</i></div><div><b>${rptMoney(S.thisSum)}</b><i>مصروف هذا البيان</i></div><div class="g"><b>${rptMoney(S.remaining)}</b><i>المتبقي من العهدة</i></div></div>
+<div class="sign avoid"><div>اعتماد مدير الإدارة<small>الاسم / ................ التوقيع / ................</small></div><div>إدارة الحركة<small>التوقيع / ................</small></div></div>
+</body></html>`;
+}
+function custodyXlsx(rows, S){
+  const aoa = [['شركة خارطة الإنماء للاستشارات الهندسية'],['Namaa Map For Consulting Engineers Company'],[],[custodyTitle()],
+    ['اسم مستلم العهدة / ' + (S.c.holder||''), '', '', 'المدير المباشر / ' + (S.c.manager||'')], ['اسم المشروع / ' + (S.c.project||''), '', '', 'الفترة / ' + custodyPeriod(rows)], [],
+    ['م','التاريخ','رقم المستند','بيان','القيمة','رقم اللوحة','المشروع','المستلم','ملاحظات']];
+  rows.forEach((x,i)=>aoa.push([i+1, x.date, x.doc, x.desc, x.cost?Number(x.cost):'', x.plate?'( '+x.plate+' )':'-', x.project||S.c.project||'', x.employee, x.notes]));
+  aoa.push(['','','','الإجمالي', S.thisSum]); aoa.push([]);
+  aoa.push(['قيمة العهدة', S.amount, '', 'مصروف سابق', S.prev]); aoa.push(['مصروف هذا البيان', S.thisSum, '', 'المتبقي', S.remaining]); aoa.push([]);
+  aoa.push(['اعتماد مدير الإدارة', '', '', '', '', 'إدارة الحركة']);
+  const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!views']=[{RTL:true}];
+  ws['!cols'] = [{wch:6},{wch:12},{wch:14},{wch:46},{wch:12},{wch:16},{wch:22},{wch:18},{wch:20}];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'بيان عهدة'); wb.Workbook={Views:[{RTL:true}]};
+  XLSX.writeFile(wb, `custody_${String(RPT.custody).replace(/[^\w-]/g,'')}_${/^\d+$/.test(String(RPT.scope))?'st'+RPT.scope:RPT.scope}.xlsx`);
 }
 
 /* ================= DATA QUALITY TAB ================= */
