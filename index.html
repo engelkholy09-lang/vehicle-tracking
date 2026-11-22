@@ -390,7 +390,7 @@ tbody tr:hover{background:var(--surface2);}
 
     <div class="fleet-layout" id="fleetLayout">
       <aside class="filters-row"><div class="fs-title">🎛️ الفلاتر</div>
-        <select id="f_location" style="display:none" aria-hidden="true"><option value="">كل المواقع</option></select>
+        <select id="f_location"><option value="">كل المواقع</option></select>
         <select id="f_project"><option value="">كل المشاريع</option></select>
         <select id="f_make"><option value="">كل الماركات</option></select>
         <select id="f_model"><option value="">كل الموديلات</option></select>
@@ -439,7 +439,7 @@ tbody tr:hover{background:var(--surface2);}
         <thead>
           <tr>
             <th>رقم اللوحة</th><th>الماركة</th><th>الموديل</th><th>السنة</th><th>السائق الحالي</th>
-            <th>الجوال</th><th>المشروع</th><th>التأمين</th><th>الرخصة</th>
+            <th>الجوال</th><th>المشروع</th><th>الموقع</th><th>التأمين</th><th>الرخصة</th>
             <th>عدد الصيانات</th><th>الحوادث</th>
           </tr>
         </thead>
@@ -764,7 +764,102 @@ function setField(c, field, rawValue, sourceLabel){
   }
 }
 
+
+/* ================================================================
+   NEW WORKBOOK FORMAT (قاعدة بيانات الأسطول 2026): one row per vehicle in
+   "بيانات السيارات", long-format "الصيانة" and "استلام وتسليم", headers found by name.
+   ================================================================ */
+function v2FindHeader(matrix, mustHave){
+  for(let r=0; r<Math.min(15, matrix.length); r++){
+    const row = (matrix[r]||[]).map(v=>cleanVal(v));
+    if(mustHave.every(h=>row.includes(h))) return {row:r, idx:(name)=>row.indexOf(name)};
+  }
+  return null;
+}
+function isNewFormatWorkbook(workbook){
+  const m = readSheetMatrix(workbook, 'بيانات السيارات');
+  return !!(m && v2FindHeader(m, ['رقم اللوحة','حروف اللوحة','الموقع']));
+}
+function v2Num(v){ const s = cleanVal(v); if(s==='') return ''; const n = Number(s); if(Number.isNaN(n)) return s; return String(Math.round(n*100)/100); }
+function v2Time(v){
+  if(v instanceof Date){ const d=new Date(v.getTime()+30000); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+  if(typeof v === 'number' && v < 1){ const mins=Math.round(v*1440); return String(Math.floor(mins/60)).padStart(2,'0')+':'+String(mins%60).padStart(2,'0'); }
+  return cleanVal(v);
+}
+function buildDashboardDataV2(workbook){
+  const errors = [];
+  const vm = readSheetMatrix(workbook, 'بيانات السيارات');
+  const H = v2FindHeader(vm, ['رقم اللوحة','حروف اللوحة']);
+  const g = (row, name)=>{ const i=H.idx(name); return i<0? '' : cleanVal(row[i]); };
+  const cars = new Map();
+  for(let r=H.row+1; r<vm.length; r++){
+    const row = vm[r]||[];
+    const num = toIntStr(g(row,'رقم اللوحة')); if(!num) continue;
+    const letters = g(row,'حروف اللوحة');
+    const key = `${num}|${normLetters(letters)}`;
+    if(cars.has(key)) continue;
+    const loc = g(row,'الموقع'); const tr = g(row,'جهاز تتبع');
+    cars.set(key, {
+      plate_key:key, plate_raw:`${num} ${letters}`.trim(), plate:`${num} ${letters}`.trim(),
+      make:g(row,'الماركة'), model:g(row,'الموديل'), year:g(row,'سنة الصنع'), chassis:g(row,'رقم الهيكل'), serial:g(row,'الرقم التسلسلي'),
+      locations: loc? [loc] : [], driver:g(row,'المستلم الحالي'), phone:g(row,'رقم الجوال'), project:g(row,'المشروع'),
+      odometer:g(row,'قراءة العداد'), prev_driver:g(row,'المستلم السابق'), national_id:g(row,'رقم الهوية'),
+      auth_expiry:g(row,'تاريخ انتهاء التفويض'), inspection_note:g(row,'تاريخ انتهاء الفحص'), license_expiry:g(row,'تاريخ انتهاء الرخصة'),
+      tracker: tr==='نعم'? 'تم' : tr, notes:g(row,'ملاحظات'), insurance_policy:g(row,'رقم وثيقة التأمين'),
+      maintenance:[], accidents:[], inspections:[], handovers:[], invoices:[], administrative_handovers:[],
+      no_tracking: tr==='لا', source_sheets:['بيانات السيارات'], conflicts:[]
+    });
+  }
+  const byNum = new Map(); for(const [k,c] of cars){ const n=k.split('|')[0]; if(!byNum.has(n)) byNum.set(n,[]); byNum.get(n).push(c); }
+  const findCar = (num, letters)=>{ const k=`${toIntStr(num)}|${normLetters(letters)}`; if(cars.has(k)) return cars.get(k); const l=byNum.get(toIntStr(num))||[]; return l.length===1? l[0] : null; };
+  const unmatched = [];
+  let rawMaint = 0, rawHand = 0;
+  const mm = readSheetMatrix(workbook, 'الصيانة');
+  if(mm){ const MH = v2FindHeader(mm, ['رقم اللوحة','نوع الصيانة']);
+    if(MH){ const mg=(row,n)=>{const i=MH.idx(n); return i<0?'':row[i];};
+      for(let r=MH.row+1; r<mm.length; r++){ const row=mm[r]||[]; const num=cleanVal(mg(row,'رقم اللوحة')); if(!num) continue; rawMaint++;
+        const c = findCar(num, cleanVal(mg(row,'حروف اللوحة')));
+        const rec = { date:cleanVal(mg(row,'تاريخ الصيانة')), type:cleanVal(mg(row,'نوع الصيانة')), employee:cleanVal(mg(row,'اسم الموظف')),
+          price:v2Num(mg(row,'التكلفة (ر.س)')), odometer:v2Num(mg(row,'قراءة العداد')), notes:cleanVal(mg(row,'ملاحظات')) };
+        if(c) c.maintenance.push(rec); else unmatched.push({sheet:'الصيانة', row:r+1, plate:num, note:'رقم اللوحة غير موجود في بيانات السيارات'});
+      } } }
+  const hm = readSheetMatrix(workbook, 'استلام وتسليم');
+  if(hm){ const HH = v2FindHeader(hm, ['رقم اللوحة','نوع الحركة']);
+    if(HH){ const hg=(row,n)=>{const i=HH.idx(n); return i<0?'':row[i];};
+      for(let r=HH.row+1; r<hm.length; r++){ const row=hm[r]||[]; const num=cleanVal(hg(row,'رقم اللوحة')); if(!num) continue; rawHand++;
+        const c = findCar(num, cleanVal(hg(row,'حروف اللوحة')));
+        const rec = { date:cleanVal(hg(row,'التاريخ')), time:v2Time(hg(row,'الساعة')), action_type:cleanVal(hg(row,'نوع الحركة')), employee:cleanVal(hg(row,'اسم الموظف')),
+          phone:cleanVal(hg(row,'رقم الجوال')), project:cleanVal(hg(row,'المشروع')), odometer:v2Num(hg(row,'قراءة العداد')), damage_notes:cleanVal(hg(row,'الحكات والصدمات')),
+          authorization_check:cleanVal(hg(row,'التفويض')), official_docs_check:cleanVal(hg(row,'الأوراق الرسمية')), receipt_documentation:cleanVal(hg(row,'توثيق الاستلام')),
+          notes:cleanVal(hg(row,'ملاحظات')), prev_receiver:cleanVal(hg(row,'المستلم السابق')) };
+        if(c) c.handovers.push(rec); else unmatched.push({sheet:'استلام وتسليم', row:r+1, plate:num, note:'رقم اللوحة غير موجود في بيانات السيارات'});
+      } } }
+  const carsList = [...cars.values()];
+  carsList.forEach(c=>{
+    c.maintenance_count = c.maintenance.length;
+    c.maintenance_total_cost = Math.round(c.maintenance.reduce((a,m)=>a+(Number(m.price)||0),0)*100)/100;
+    c.accidents_count = 0; c.handovers_count = c.handovers.length; c.invoices_count = 0; c.invoices_total_amount = 0;
+  });
+  const dupLog = [];
+  const report = {
+    total_vehicles: carsList.length, unique_plates: carsList.length, independent_recount_unique_plates: carsList.length, independent_recount_matches_dashboard: true,
+    raw_nonempty_rows_per_main_sheet: {'بيانات السيارات': carsList.length}, per_sheet_unique_plate_counts: {'بيانات السيارات': carsList.length},
+    raw_maintenance_rows: rawMaint, raw_accident_rows: 0, raw_inspection_rows: 0, duplicate_plate_entries_within_sheet: dupLog,
+    no_driver: carsList.filter(c=>!c.driver).length, no_location: carsList.filter(c=>!c.locations.length).length,
+    no_insurance: carsList.filter(c=>!c.insurance_policy).length, no_inspection: carsList.filter(c=>!c.inspection_note).length,
+    no_maintenance: carsList.filter(c=>!c.maintenance_count).length, total_accidents: 0,
+    total_maintenance_records: carsList.reduce((a,c)=>a+c.maintenance_count,0), maintenance_total_possible_entries: rawMaint,
+    maintenance_unmatched_entries: unmatched.filter(u=>u.sheet==='الصيانة').length, unmatched_secondary_records: unmatched,
+    cars_with_conflicts: [], resolved_sheets: {cars:'بيانات السيارات', maintenance:'الصيانة', handover:'استلام وتسليم'}, import_warnings: errors,
+    raw_handover_rows: rawHand, raw_invoice_rows: 0, total_handovers: carsList.reduce((a,c)=>a+c.handovers_count,0), total_invoices: 0,
+    no_tracking_count: carsList.filter(c=>c.no_tracking).length, no_tracking_source_total: carsList.filter(c=>c.no_tracking).length,
+    administrative_handover_count: 0, format: 'v2'
+  };
+  return { cars: carsList, report, errors, resolvedSheets: report.resolved_sheets };
+}
+
 function buildDashboardData(workbook){
+  if(isNewFormatWorkbook(workbook)) return buildDashboardDataV2(workbook);
   const importErrors = [];
   const resolvedSheets = {};
   for(const key of Object.keys(SHEET_CONFIG)){
@@ -1118,6 +1213,7 @@ let CARS = [];
 let REPORT = null;
 const TODAY = (()=>{ const n=new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); })();
 
+function projKey(s){ return String(s||'').replace(/[\u064B-\u0652\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').replace(/\s+/g,''); }
 function esc(s){ return (s==null?'':s.toString()).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtMoney(n){ return n==null? '—' : Number(n).toLocaleString('ar-SA')+' ريال'; }
 
@@ -1517,7 +1613,8 @@ function fillSelect(id, values){
 }
 function refreshFilterOptions(){
   fillSelect('f_location', uniqSorted([].concat(...CARS.map(c=>c.locations))));
-  fillSelect('f_project', uniqSorted(CARS.map(c=>c.project)));
+  { const g=new Map(); CARS.forEach(c=>{ const raw=(c.project||'').trim(); if(!raw) return; const k=projKey(raw); const m=g.get(k)||new Map(); m.set(raw,(m.get(raw)||0)+1); g.set(k,m); });
+    fillSelect('f_project', [...g.values()].map(m=>[...m.entries()].sort((a,b)=>b[1]-a[1])[0][0]).sort((a,b)=>a.localeCompare(b,'ar'))); }
   fillSelect('f_make', uniqSorted(CARS.map(c=>c.make)));
   fillSelect('f_model', uniqSorted(CARS.map(c=>c.model)));
 }
@@ -1547,7 +1644,7 @@ function matchesFilters(c, f){
     if(!hay.includes(f.q)) return false;
   }
   if(f.location && !(c.locations||[]).includes(f.location)) return false;
-  if(f.project && c.project!==f.project) return false;
+  if(f.project && projKey(c.project)!==projKey(f.project)) return false;
   if(f.make && c.make!==f.make) return false;
   if(f.model && c.model!==f.model) return false;
   if(f.insurance && classifyBucket(c.__insurance.level)!==f.insurance) return false;
@@ -1609,6 +1706,7 @@ function exportFilteredFleet(){
       'السائق الحالي': c.driver || '',
       'الجوال': c.phone || '',
       'المشروع': c.project || '',
+      'الموقع': (c.locations||[]).join('، '),
       'حالة التأمين': c.__insurance.label,
       'حالة الرخصة': c.__license.label,
       'حالة التفويض': c.__auth.label,
@@ -1712,6 +1810,7 @@ function renderGrid(list){
       </div>
       <div class="cc-row"><span>السائق الحالي</span><b>${esc(c.driver)||'—'}</b></div>
       <div class="cc-row"><span>المشروع</span><b>${esc(c.project)||'—'}</b></div>
+      <div class="cc-row"><span>الموقع</span><b>${esc((c.locations||[]).join('، '))||'—'}</b></div>
       <div class="chips">
         ${driverChip(c)}
         ${statusChipFor('التأمين', c.__insurance)}
@@ -1726,7 +1825,7 @@ function renderGrid(list){
 function renderTable(list){
   const body = document.getElementById('tableBody');
   if(list.length===0){
-    body.innerHTML = `<tr><td colspan="11" class="empty-state">لا توجد نتائج مطابقة</td></tr>`;
+    body.innerHTML = `<tr><td colspan="12" class="empty-state">لا توجد نتائج مطابقة</td></tr>`;
     return;
   }
   body.innerHTML = list.map(c=>`
@@ -1734,7 +1833,7 @@ function renderTable(list){
       <td><span class="plate-tag" style="font-size:11px; padding:3px 8px;">${esc(c.plate)}</span></td>
       <td>${esc(c.make)}</td><td>${esc(c.model)}</td><td>${esc(c.year)||'—'}</td>
       <td>${esc(c.driver)||'—'}</td><td>${esc(c.phone)||'—'}</td>
-      <td>${esc(c.project)||'—'}</td>
+      <td>${esc(c.project)||'—'}</td><td>${esc((c.locations||[]).join('، '))||'—'}</td>
       <td>${statusIcon(c.__insurance.level)}</td><td>${statusIcon(c.__license.level)}</td>
       <td>${c.maintenance_count}</td><td>${c.accidents_count}</td>
     </tr>`).join('');
@@ -1965,15 +2064,43 @@ function renderAnalytics(){
   let html = '';
   html += barChart('توزيع المركبات حسب الماركة', byMake);
   html += barChart('توزيع المركبات حسب المشروع (أعلى 10)', byProject);
+  html += barChart('توزيع المركبات حسب الموقع', byLocation);
+  // location x project breakdown
+  const lp = new Map();
+  scope.forEach(c=>{
+    const loc = (c.locations && c.locations[0]) || 'غير محدد';
+    const raw = (c.project||'').trim() || 'بدون مشروع', k = _pk(raw);
+    if(!lp.has(loc)) lp.set(loc, {total:0, projects:new Map()});
+    const L = lp.get(loc); L.total++;
+    const P = L.projects.get(k) || {total:0, variants:new Map()}; P.total++; P.variants.set(raw,(P.variants.get(raw)||0)+1); L.projects.set(k,P);
+  });
+  const locs = [...lp.entries()].sort((a,b)=>b[1].total-a[1].total);
+  html += `<div class="chart-card" style="grid-column:1/-1"><h3>المركبات حسب الموقع والمشروع <span style="font-weight:400;font-size:12px;color:var(--muted)">— اضغط على أي مشروع لعرض مركباته</span></h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">
+    ${locs.map(([loc,L])=>`<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="font-size:15px;color:var(--primary);cursor:pointer" data-lp-loc="${esc(loc)}">📍 ${esc(loc)}</b><span class="chip">${L.total} مركبة</span></div>
+      ${[...L.projects.values()].sort((a,b)=>b.total-a.total).map(P=>{const name=[...P.variants.entries()].sort((a,b)=>b[1]-a[1])[0][0];
+        return `<div data-lp-loc="${esc(loc)}" data-lp-proj="${esc(name)}" style="display:flex;justify-content:space-between;gap:8px;padding:5px 2px;border-top:1px dashed var(--border);cursor:pointer;font-size:13px">
+          <span>${esc(name)}</span><b>${P.total}</b></div>`;}).join('')}
+    </div>`).join('')}
+    </div></div>`;
   html += costByCar.length ? barChart('أعلى المركبات تكلفة في الصيانة (ريال)', costByCar) :
     `<div class="chart-card"><h3>أعلى المركبات تكلفة في الصيانة</h3><div class="empty-note">لا توجد بيانات تكلفة صيانة كافية</div></div>`;
   html += maintCountByMonth.length ? barChart('عدد عمليات الصيانة شهريًا', maintCountByMonth) :
     `<div class="chart-card"><h3>عدد عمليات الصيانة شهريًا</h3><div class="empty-note">لا توجد تواريخ صيانة يمكن تجميعها</div></div>`;
   html += maintCostByMonth.length ? barChart('تكلفة الصيانة شهريًا (ريال)', maintCostByMonth) :
     `<div class="chart-card"><h3>تكلفة الصيانة شهريًا</h3><div class="empty-note">لا توجد بيانات كافية</div></div>`;
-  html += accByMonth.length ? barChart('عدد الحوادث حسب الشهر', accByMonth) :
-    `<div class="chart-card"><h3>عدد الحوادث حسب الشهر</h3><div class="empty-note">لا توجد تواريخ حوادث يمكن تجميعها</div></div>`;
+  if(accByMonth.length) html += barChart('عدد الحوادث حسب الشهر', accByMonth);
   grid.innerHTML = html;
+  grid.querySelectorAll('[data-lp-loc]').forEach(el=>el.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    const loc = el.dataset.lpLoc, proj = el.dataset.lpProj;
+    const fl = document.getElementById('f_location'); if(fl){ fl.value = loc==='غير محدد' ? '' : loc; }
+    const fp = document.getElementById('f_project'); if(fp){ fp.value = proj ? (([...fp.options].find(o=>o.value && projKey(o.value)===projKey(proj)))||{value:''}).value : ''; }
+    if(fl) fl.dispatchEvent(new Event('change')); if(fp) fp.dispatchEvent(new Event('change'));
+    const t = document.querySelector('[data-tab=fleet]'); if(t) t.click();
+  }));
   const noteBox = document.getElementById('analyticsNote');
   if(noteBox) noteBox.innerHTML = undatedMaint>0 ? `<div class="empty-note" style="margin-top:14px;">ملاحظة: ${undatedMaint} عملية صيانة من أصل ${totalMaintRecs} بدون تاريخ مقروء، لذلك لا تظهر في الرسوم الشهرية (لكنها محسوبة في الإجماليات).</div>` : '';
 }
@@ -2172,7 +2299,7 @@ function buildModalPanes(c){
   // INFO PANE
   const infoItems = [
     ['رقم اللوحة', c.plate], ['الماركة', c.make], ['الموديل', c.model], ['سنة الصنع', c.year],
-    ['رقم الهيكل', c.chassis], ['الرقم التسلسلي', c.serial], ['المشروع', c.project],
+    ['رقم الهيكل', c.chassis], ['الرقم التسلسلي', c.serial], ['المشروع', c.project], ['الموقع', (c.locations||[]).join('، ')],
     ['عداد السيارة', c.odometer],
   ];
   let infoHtml = `<div class="info-grid">` + infoItems.map(([k,v])=>`
