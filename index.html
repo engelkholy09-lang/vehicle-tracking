@@ -502,6 +502,7 @@ tbody tr:hover{background:var(--surface2);}
       <button class="mtab-btn" data-m="acc">الحوادث</button>
       <button class="mtab-btn" data-m="insp">الفحص الدوري</button>
       <button class="mtab-btn" data-m="handover">الاستلام والتسليم</button>
+      <button class="mtab-btn" data-m="viol">المخالفات</button>
       <button class="mtab-btn" data-m="invoices">الفواتير</button>
       <button class="mtab-btn" data-m="admin">الشئون الإدارية</button>
     </div>
@@ -813,7 +814,7 @@ function buildDashboardDataV2(workbook){
       odometer:g(row,'قراءة العداد'), prev_driver:g(row,'المستلم السابق'), national_id:g(row,'رقم الهوية'),
       auth_expiry:g(row,'تاريخ انتهاء التفويض'), inspection_note:g(row,'تاريخ انتهاء الفحص'), license_expiry:g(row,'تاريخ انتهاء الرخصة'),
       tracker: tr==='نعم'? 'تم' : tr, notes:g(row,'ملاحظات'), insurance_policy:g(row,'رقم وثيقة التأمين'),
-      maintenance:[], accidents:[], inspections:[], handovers:[], invoices:[], administrative_handovers:[],
+      maintenance:[], accidents:[], inspections:[], handovers:[], invoices:[], administrative_handovers:[], violations:[],
       no_tracking: tr==='لا', source_sheets:['بيانات السيارات'], conflicts:[]
     });
   }
@@ -840,6 +841,18 @@ function buildDashboardDataV2(workbook){
           authorization_check:cleanVal(hg(row,'التفويض')), official_docs_check:cleanVal(hg(row,'الأوراق الرسمية')), receipt_documentation:cleanVal(hg(row,'توثيق الاستلام')),
           notes:cleanVal(hg(row,'ملاحظات')), prev_receiver:cleanVal(hg(row,'المستلم السابق')) };
         if(c) c.handovers.push(rec); else unmatched.push({sheet:'استلام وتسليم', row:r+1, plate:num, note:'رقم اللوحة غير موجود في بيانات السيارات'});
+      } } }
+  // traffic violations (المخالفات)
+  const violations = [];
+  const vlm = readSheetMatrix(workbook, 'المخالفات');
+  if(vlm){ const VH = v2FindHeader(vlm, ['رقم اللوحة','رقم المخالفة']);
+    if(VH){ const vg=(row,n)=>{const i=VH.idx(n); return i<0?'':row[i];};
+      for(let r=VH.row+1; r<vlm.length; r++){ const row=vlm[r]||[]; const num=cleanVal(vg(row,'رقم اللوحة')); const no=cleanVal(vg(row,'رقم المخالفة')); if(!num && !no) continue;
+        const c = num? findCar(num, cleanVal(vg(row,'حروف اللوحة'))) : null;
+        const rec = { no, date:cleanVal(vg(row,'تاريخ المخالفة')), amount:v2Num(vg(row,'القيمة (ر.س)')), type:cleanVal(vg(row,'نوع المخالفة')),
+          driver:cleanVal(vg(row,'السائق وقت المخالفة')), status:cleanVal(vg(row,'حالة السداد'))||'غير مسددة', notes:cleanVal(vg(row,'ملاحظات')) };
+        if(c){ c.violations.push(rec); violations.push(Object.assign({plate:c.plate, project:c.project, location:(c.locations||[])[0]||''}, rec)); }
+        else unmatched.push({sheet:'المخالفات', row:r+1, plate:num, note:'رقم اللوحة غير موجود في بيانات السيارات'});
       } } }
   // custody register + all expenses (incl. rows without a plate) for the reports tab
   const custodies = [], expenses = [];
@@ -876,7 +889,7 @@ function buildDashboardDataV2(workbook){
     cars_with_conflicts: [], resolved_sheets: {cars:'بيانات السيارات', maintenance:'الصيانة', handover:'استلام وتسليم'}, import_warnings: errors,
     raw_handover_rows: rawHand, raw_invoice_rows: 0, total_handovers: carsList.reduce((a,c)=>a+c.handovers_count,0), total_invoices: 0,
     no_tracking_count: carsList.filter(c=>c.no_tracking).length, no_tracking_source_total: carsList.filter(c=>c.no_tracking).length,
-    administrative_handover_count: 0, format: 'v2', custodies, expenses
+    administrative_handover_count: 0, format: 'v2', custodies, expenses, violations
   };
   return { cars: carsList, report, errors, resolvedSheets: report.resolved_sheets };
 }
@@ -1402,6 +1415,8 @@ function renderOverview(){
     {num:noTracking, lbl:'بدون تتبع', icon:'🚫', cls:'c-danger', filters:{tracking:'no_tracking'}},
     {num:adminHandoverCount, lbl:'تسليم إلى الشئون الإدارية', icon:'🏢', cls:'c-primary', filters:{admin:'has'}},
     {num:unpaidInvoiceVehicles, lbl:'فواتير غير مدفوعة', icon:'🧾', cls:'c-warn', filters:{invoice:'unpaid'}},
+    {num:scope.reduce((a,c)=>a+(c.violations||[]).length,0), lbl:'المخالفات المرورية', icon:'🚨', cls:'c-danger', filters:null, tab:'reports'},
+    {num:fmtMoney(scope.reduce((a,c)=>a+(c.violations||[]).filter(v=>v.status!=='مسددة').reduce((x,v)=>x+(Number(v.amount)||0),0),0)), lbl:'مخالفات غير مسددة', icon:'💸', cls:'c-warn', filters:null, tab:'reports'},
   ];
   document.getElementById('kpiGrid').innerHTML = kpis.map((k,i)=>`
     <div class="kpi ${k.cls} clickable" data-kpi-idx="${i}">
@@ -1413,6 +1428,7 @@ function renderOverview(){
     el.addEventListener('click', ()=>{
       const k = kpis[parseInt(el.dataset.kpiIdx)];
       if(k.tab === 'alerts'){ document.querySelector('.tab-btn[data-tab="alerts"]').click(); return; }
+      if(k.tab === 'reports'){ document.querySelector('.tab-btn[data-tab="reports"]').click(); setTimeout(()=>{const v=document.getElementById('violCard'); if(v) v.scrollIntoView({behavior:'smooth'});},100); return; }
       document.querySelector('.tab-btn[data-tab="fleet"]').click();
       document.getElementById('clearFilters').click();
       if(k.filters){
@@ -2271,7 +2287,7 @@ function openMonthReport(ym){
 
 
 /* ================= REPORTS TAB ================= */
-const RPT = { custody:'', from:'', to:'', excluded:new Set() };
+const RPT = { custody:'', from:'', to:'', excluded:new Set(), vst:'' };
 function rptMoney(n){ return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 function custodyRows(){
   const R = REPORT || {}; let rows = (R.expenses||[]).filter(e=>e.custody===RPT.custody);
@@ -2299,6 +2315,8 @@ function renderReports(){
   const incl = rows.filter(e=>!RPT.excluded.has(e));
   const S = RPT.custody ? custodySummary(incl) : null;
   const sel = 'style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;min-width:150px"';
+  const VL = CARS.flatMap(c=>(c.violations||[]).map(v=>Object.assign({plate:c.plate, project:c.project}, v))).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const VF = VL.filter(v=>!RPT.vst || v.status===RPT.vst);
   box.innerHTML = `
   <div class="chart-card" style="margin-bottom:16px">
     <h3>🧾 بيان مصروفات عهدة</h3>
@@ -2317,6 +2335,20 @@ function renderReports(){
     <div style="overflow-x:auto"><table style="min-width:0;width:100%;font-size:13px"><thead><tr><th>✓</th><th>م</th><th>التاريخ</th><th>رقم المستند</th><th>البيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المستلم</th><th>التصنيف</th></tr></thead>
     <tbody>${rows.length? rows.map((e,i)=>`<tr style="${RPT.excluded.has(e)?'opacity:.4;text-decoration:line-through':''}"><td><input type="checkbox" data-rpi="${i}" ${RPT.excluded.has(e)?'':'checked'}></td><td>${i+1}</td><td style="white-space:nowrap">${esc(e.date)}</td><td>${esc(e.doc)}</td><td style="white-space:normal">${esc(e.desc)}</td><td style="font-weight:700;white-space:nowrap">${e.cost?rptMoney(e.cost):'—'}</td><td style="white-space:nowrap">${esc(e.plate)||'-'}</td><td>${esc(e.employee)}</td><td>${esc(e.category)||'—'}</td></tr>`).join('') : `<tr><td colspan="9" class="empty-state">لا توجد مصروفات بهذه الاختيارات</td></tr>`}</tbody></table></div>`}
   </div>
+  <div class="chart-card" id="violCard" style="margin-bottom:16px">
+    <h3>🚨 سجل المخالفات المرورية</h3>
+    ${!VL.length ? `<div class="empty-note">لا توجد مخالفات مسجلة. سجّلها من شاشة الإدخال في الإكسيل (🚨 تسجيل مخالفة) وارفع الملف هنا.</div>` : `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+      <label>حالة السداد<br><select id="vlSt" ${sel}><option value="">الكل</option><option ${RPT.vst==='غير مسددة'?'selected':''}>غير مسددة</option><option ${RPT.vst==='مسددة'?'selected':''}>مسددة</option></select></label>
+      <button class="clear-btn" id="vlPrint" style="background:#0F2B46;color:#fff">🖨️ طباعة / PDF</button>
+      <button class="clear-btn" id="vlXlsx">📥 Excel</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
+      ${[['عدد المخالفات',VF.length],['إجمالي القيمة',fmtMoney(VF.reduce((a,v)=>a+(Number(v.amount)||0),0))],['غير مسدد',fmtMoney(VF.filter(v=>v.status!=='مسددة').reduce((a,v)=>a+(Number(v.amount)||0),0))]].map(([l,v])=>`<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center"><b style="font-size:18px">${v}</b><div style="font-size:12px;color:var(--muted)">${l}</div></div>`).join('')}
+    </div>
+    <div style="overflow-x:auto"><table style="min-width:0;width:100%;font-size:13px"><thead><tr><th>م</th><th>رقم المخالفة</th><th>التاريخ</th><th>رقم اللوحة</th><th>القيمة</th><th>السائق</th><th>المشروع</th><th>الحالة</th><th>ملاحظات</th></tr></thead>
+    <tbody>${VF.map((v,i)=>`<tr><td>${i+1}</td><td>${esc(v.no)}</td><td style="white-space:nowrap">${esc(v.date)}</td><td style="white-space:nowrap;font-weight:700">${esc(v.plate)}</td><td><b>${fmtMoney(Number(v.amount)||0)}</b></td><td>${esc(v.driver)}</td><td>${esc(v.project)}</td><td style="color:${v.status==='مسددة'?'#1E8449':'#C0392B'};font-weight:700">${esc(v.status)}</td><td>${esc(v.notes)}</td></tr>`).join('')}</tbody></table></div>`}
+  </div>
   <div class="chart-card">
     <h3>📅 تقرير أعمال شهري</h3>
     <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
@@ -2325,6 +2357,13 @@ function renderReports(){
     </div>
   </div>`;
   const on = (id, ev, fn) => { const el=document.getElementById(id); if(el) el.addEventListener(ev, fn); };
+  on('vlSt','change',e=>{ RPT.vst=e.target.value; renderReports(); });
+  on('vlPrint','click',()=>{ const w=window.open('','_blank'); if(!w) return; w.document.write(violPrintDoc(VF)); w.document.close(); setTimeout(()=>{w.focus(); w.print();}, 900); });
+  on('vlXlsx','click',()=>{ const aoa=[['سجل المخالفات المرورية'],[],['م','رقم المخالفة','التاريخ','رقم اللوحة','القيمة (ر.س)','السائق','المشروع','الحالة','ملاحظات']];
+    VF.forEach((v,i)=>aoa.push([i+1,v.no,v.date,v.plate,Number(v.amount)||0,v.driver,v.project,v.status,v.notes]));
+    aoa.push(['','','','الإجمالي',VF.reduce((a,v)=>a+(Number(v.amount)||0),0)]);
+    const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!views']=[{RTL:true}]; ws['!cols']=[{wch:5},{wch:14},{wch:12},{wch:14},{wch:12},{wch:20},{wch:22},{wch:12},{wch:26}];
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'المخالفات'); wb.Workbook={Views:[{RTL:true}]}; XLSX.writeFile(wb,'violations.xlsx'); });
   on('rpCust','change',e=>{ RPT.custody=e.target.value; RPT.excluded=new Set(); renderReports(); });
   on('rpFrom','change',e=>{ RPT.from=e.target.value; RPT.excluded=new Set(); renderReports(); });
   on('rpTo','change',e=>{ RPT.to=e.target.value; RPT.excluded=new Set(); renderReports(); });
@@ -2368,6 +2407,22 @@ thead{display:table-header-group}tr{page-break-inside:avoid}.avoid{page-break-in
 <table class="sum avoid"><tr><td>قيمة العهدة</td><td class="v">${rptMoney(S.amount)}</td></tr><tr><td>مصروف سابق</td><td class="v">${rptMoney(S.prev)}</td></tr><tr><td>مصروف هذا البيان</td><td class="v">${rptMoney(S.thisSum)}</td></tr><tr class="r"><td>المتبقي من العهدة</td><td class="v">${rptMoney(S.remaining)}</td></tr></table>
 <div class="sign avoid"><div>اعتماد مدير الإدارة<small>الاسم / ................ &nbsp; التوقيع / ................</small></div><div>إدارة الحركة<small>التوقيع / ................</small></div></div>
 </body></html>`;
+}
+function violPrintDoc(V){
+  const logo = (document.querySelector('.brand-logo')||{}).src || ''; const e = v=>esc(v==null?'':v);
+  const tot = V.reduce((a,v)=>a+(Number(v.amount)||0),0), un = V.filter(v=>v.status!=='مسددة').reduce((a,v)=>a+(Number(v.amount)||0),0);
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل المخالفات المرورية</title>
+<style>@page{size:A4 portrait;margin:9mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:Arial,Tahoma,sans-serif;color:#000;margin:0;font-size:11px}.top{display:flex;justify-content:space-between;align-items:center;padding:4px 2px 6px}
+.co{font-size:13px;font-weight:700}.en{font-size:11.5px;font-weight:700;margin-top:2px}.top img{height:60px}.rule{height:12px;background:#d0d0d0;border:1px solid #808080;margin:4px 0 6px}
+.band{background:#d9d9d9;font-size:12.5px;font-weight:700;padding:3px 8px;margin-bottom:6px}table{width:100%;border-collapse:collapse}
+th{background:#d9d9d9;font-weight:700;padding:4px;border:1px solid #000}td{border:1px solid #000;padding:3px 5px;text-align:center}tr.tot td{background:#d9d9d9;font-weight:700}
+thead{display:table-header-group}tr{page-break-inside:avoid}</style></head><body>
+<div class="top"><div><div class="co">شـركـة خـارطـة الإنـمـاء للاسـتـشـارات الـهـنـدسـيـة</div><div class="en">Namaa Map For Consulting Engineers Company</div></div>${logo?`<img src="${logo}">`:''}</div>
+<div class="rule"></div><div class="band">سجل المخالفات المرورية${RPT.vst?' — '+e(RPT.vst):''}</div>
+<table><thead><tr><th>م</th><th>رقم المخالفة</th><th>التاريخ</th><th>رقم اللوحة</th><th>القيمة</th><th>السائق</th><th>المشروع</th><th>الحالة</th><th>ملاحظات</th></tr></thead><tbody>
+${V.map((v,i)=>`<tr><td>${i+1}</td><td>${e(v.no)}</td><td>${e(v.date)}</td><td style="font-weight:700;white-space:nowrap">( ${e(v.plate)} )</td><td>${rptMoney(Number(v.amount)||0)}</td><td>${e(v.driver)}</td><td>${e(v.project)}</td><td>${e(v.status)}</td><td>${e(v.notes)}</td></tr>`).join('')}
+<tr class="tot"><td colspan="4">الإجمالي</td><td>${rptMoney(tot)}</td><td colspan="2">غير مسدد</td><td colspan="2">${rptMoney(un)}</td></tr></tbody></table></body></html>`;
 }
 function custodyXlsx(rows, S){
   const aoa = [['شركة خارطة الإنماء للاستشارات الهندسية'],['Namaa Map For Consulting Engineers Company'],[],[custodyTitle()],
@@ -2743,7 +2798,16 @@ function buildModalPanes(c){
       </div>`).join('');
   }
 
-  const panes = {info:infoHtml, docs:docsHtml, maint:maintHtml, acc:accHtml, insp:inspHtml, handover:handoverHtml, invoices:invoicesHtml, admin:adminHtml};
+  const vl = c.violations||[];
+  const violHtml = !vl.length ? `<div class="empty-note">لا توجد مخالفات مسجلة على المركبة</div>` : `<div class="mini-stats">
+      <div class="mini-stat"><b>${vl.length}</b>عدد المخالفات</div>
+      <div class="mini-stat"><b>${fmtMoney(vl.reduce((a,v)=>a+(Number(v.amount)||0),0))}</b>إجمالي القيمة</div>
+      <div class="mini-stat"><b>${fmtMoney(vl.filter(v=>v.status!=='مسددة').reduce((a,v)=>a+(Number(v.amount)||0),0))}</b>غير مسدد</div></div>` +
+    [...vl].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(v=>`<div class="timeline-item">
+      <div class="d">${esc(v.date)||'—'} ${v.driver? '· '+esc(v.driver):''}</div>
+      <div><b>رقم المخالفة: ${esc(v.no)||'—'}</b> · القيمة: <b>${fmtMoney(Number(v.amount)||0)}</b> · <span style="color:${v.status==='مسددة'?'#1E8449':'#C0392B'};font-weight:700">${esc(v.status)}</span></div>
+      ${v.type? `<div>${esc(v.type)}</div>`:''}${v.notes? `<div style="color:var(--muted); margin-top:3px;">${esc(v.notes)}</div>`:''}</div>`).join('');
+  const panes = {info:infoHtml, docs:docsHtml, maint:maintHtml, acc:accHtml, insp:inspHtml, handover:handoverHtml, viol:violHtml, invoices:invoicesHtml, admin:adminHtml};
   body.innerHTML = Object.entries(panes).map(([k,html])=>`<div class="mpane ${k==='info'?'active':''}" data-pane="${k}">${html}</div>`).join('');
 }
 document.getElementById('modalTabs').addEventListener('click', (e)=>{
