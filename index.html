@@ -2337,32 +2337,36 @@ function custodyTitle(){ return `بيان مصروفات / عهدة رقم ${RPT
 function custodyPeriod(rows){ const ds=rows.map(e=>parseDate(e.date)).filter(Boolean).sort((a,b)=>a-b); if(!ds.length) return ''; const f=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); return `من ${f(ds[0])} إلى ${f(ds[ds.length-1])}`; }
 function custodyPrintDoc(rows, S){
   const logo = (document.querySelector('.brand-logo')||{}).src || ''; const e = v=>esc(v==null?'':v);
-  const body = rows.map((x,i)=>`<tr><td>${i+1}</td><td class="nw">${e(x.date)}</td><td>${e(x.doc)}</td><td class="desc">${e(x.desc)}</td><td class="num">${x.cost?rptMoney(x.cost):'—'}</td><td class="nw plate">${x.plate?'( '+e(x.plate)+' )':'-'}</td><td>${e(x.project||S.c.project)}</td><td>${e(x.employee)}</td><td>${e(x.notes)}</td></tr>`).join('');
+  const AR_M=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+  const ld = (RPT.to || (rows.length?rows[rows.length-1].date:'') || new Date().toISOString().slice(0,10));
+  const mi = parseInt(String(ld).slice(5,7),10)-1, yr = String(ld).slice(0,4);
+  const title = `بيان مصروفات&nbsp;&nbsp;/&nbsp;&nbsp;عــهــدة (${AR_M[mi]||''}) ${e(yr)}`;
+  const body = rows.map((x,i)=>`<tr><td>${i+1}</td><td class="nw">${e(x.date)}</td><td>${e(x.doc)}</td><td class="desc">${e(x.desc)}</td><td class="num">${x.cost?rptMoney(x.cost):'-'}</td><td class="nw plate">${x.plate?'( '+e(x.plate)+' )':'-'}</td><td>${e(x.project)||'-'}</td><td class="nw">${e(x.employee)}</td><td>${e(x.notes)}</td></tr>`).join('');
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${e(custodyTitle())}</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<style>@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#1c2733;margin:0;font-size:11px}
-.top{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0F2B46;padding-bottom:8px}
-.co{font-size:16px;font-weight:800;color:#0F2B46;letter-spacing:.5px}.en{font-size:11px;font-weight:700;color:#34495e}
-.top img{height:52px}
-.band{background:#d9dee4;font-size:15px;font-weight:800;color:#0F2B46;padding:7px 12px;margin:10px 0 6px;border-right:6px solid #127C8A}
-.info{display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;font-weight:700;font-size:12px;margin-bottom:8px}.info span{color:#64748b;font-weight:600}
-table{width:100%;border-collapse:collapse}th{background:#bfc9d3;color:#000;font-weight:700;padding:6px;border:1px solid #7f8c8d;font-size:11px}
-td{border:1px solid #9aa5b1;padding:5px 6px;text-align:center;vertical-align:top}td.desc{text-align:right;min-width:190px}td.num{font-weight:800;white-space:nowrap}
-td.nw{white-space:nowrap}td.plate{font-weight:700;color:#0F2B46}tbody tr:nth-child(even) td{background:#f5f7f9}
-tfoot td{background:#d9dee4;font-weight:800;font-size:12.5px;color:#0F2B46;border-bottom:2px solid #0F2B46}
-.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}.sum div{border:1px solid #cfd8e0;border-top:4px solid #127C8A;border-radius:8px;text-align:center;padding:6px;background:#f8fafc}
-.sum div.g{border-top-color:#C9A227}.sum b{display:block;font-size:15px;color:#0F2B46}.sum i{font-style:normal;font-size:10.5px;color:#64748b}
-.sign{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:34px;text-align:center;font-weight:700;color:#0F2B46}.sign small{display:block;color:#94a3b8;font-weight:400;margin-top:26px}
-thead{display:table-header-group}.avoid{page-break-inside:avoid}</style></head><body>
+<style>@page{size:A4 portrait;margin:9mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:Arial,Tahoma,sans-serif;color:#000;margin:0;font-size:11px}
+.top{display:flex;justify-content:space-between;align-items:center;padding:4px 2px 6px}
+.co{font-size:13px;font-weight:700}.en{font-size:11.5px;font-weight:700;margin-top:2px}.top img{height:60px}
+.rule{height:12px;background:#d0d0d0;border:1px solid #808080;margin:4px 0 6px}
+.band{background:#d9d9d9;font-size:12.5px;font-weight:700;padding:3px 8px;margin-bottom:3px}
+.info{display:flex;justify-content:space-between;font-weight:700;font-size:12px;padding:1px 8px}
+.info2{font-weight:700;font-size:12px;padding:1px 8px 6px}
+table{width:100%;border-collapse:collapse}th{background:#d9d9d9;font-weight:700;padding:4px;border:1px solid #000;font-size:11.5px}
+td{border:1px solid #000;padding:3px 5px;text-align:center}td.desc{text-align:right}td.num{white-space:nowrap}
+td.nw{white-space:nowrap}td.plate{font-weight:700;font-size:12px}
+tr.tot td{background:#d9d9d9;font-weight:700;font-size:12px}
+.sum{width:46%;margin:10px 0 0 auto}.sum td{text-align:right;font-weight:700;padding:4px 8px}.sum td.v{text-align:center;width:40%}.sum tr.r td{background:#d9d9d9}
+.sign{display:flex;justify-content:space-around;margin-top:36px;text-align:center;font-weight:700;font-size:12px}.sign small{display:block;font-weight:400;margin-top:28px}
+thead{display:table-header-group}tr{page-break-inside:avoid}.avoid{page-break-inside:avoid}</style></head><body>
 <div class="top"><div><div class="co">شـركـة خـارطـة الإنـمـاء للاسـتـشـارات الـهـنـدسـيـة</div><div class="en">Namaa Map For Consulting Engineers Company</div></div>${logo?`<img src="${logo}">`:''}</div>
-<div class="band">${e(custodyTitle())}</div>
-<div class="info"><div><span>اسم مستلم العهدة /</span> ${e(S.c.holder)}</div><div><span>المدير المباشر /</span> ${e(S.c.manager)}</div>
-<div><span>اسم المشروع /</span> ${e(S.c.project)}</div><div><span>الفترة /</span> ${e(custodyPeriod(rows))}</div></div>
-<table><thead><tr><th>م</th><th>التاريخ</th><th>رقم المستند</th><th>بيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المشروع</th><th>المستلم</th><th>ملاحظات</th></tr></thead>
-<tbody>${body||'<tr><td colspan="9">لا توجد مصروفات</td></tr>'}</tbody><tfoot><tr><td colspan="4">الإجمالي</td><td>${rptMoney(S.thisSum)}</td><td colspan="4"></td></tr></tfoot></table>
-<div class="sum avoid"><div><b>${rptMoney(S.amount)}</b><i>قيمة العهدة</i></div><div><b>${rptMoney(S.prev)}</b><i>مصروف سابق</i></div><div><b>${rptMoney(S.thisSum)}</b><i>مصروف هذا البيان</i></div><div class="g"><b>${rptMoney(S.remaining)}</b><i>المتبقي من العهدة</i></div></div>
-<div class="sign avoid"><div>اعتماد مدير الإدارة<small>الاسم / ................ التوقيع / ................</small></div><div>إدارة الحركة<small>التوقيع / ................</small></div></div>
+<div class="rule"></div>
+<div class="band">${title}</div>
+<div class="info"><div>اسم مستلم العهدة&nbsp;/&nbsp;&nbsp;${e(S.c.holder)}</div><div>المدير المباشر&nbsp;/&nbsp;&nbsp;${e(S.c.manager)}</div></div>
+<div class="info2">اسم المشروع&nbsp;/&nbsp;&nbsp;${e(S.c.project)}</div>
+<table><thead><tr><th style="width:26px">م</th><th>التاريخ</th><th>رقم المستند</th><th style="width:34%">بيان</th><th>القيمة</th><th>رقم اللوحة</th><th>المشروع</th><th>المستلم</th><th>ملاحظات</th></tr></thead>
+<tbody>${body||'<tr><td colspan="9">لا توجد مصروفات</td></tr>'}<tr class="tot"><td colspan="4">الإجمالي</td><td>${rptMoney(S.thisSum)}</td><td colspan="4"></td></tr></tbody></table>
+<table class="sum avoid"><tr><td>قيمة العهدة</td><td class="v">${rptMoney(S.amount)}</td></tr><tr><td>مصروف سابق</td><td class="v">${rptMoney(S.prev)}</td></tr><tr><td>مصروف هذا البيان</td><td class="v">${rptMoney(S.thisSum)}</td></tr><tr class="r"><td>المتبقي من العهدة</td><td class="v">${rptMoney(S.remaining)}</td></tr></table>
+<div class="sign avoid"><div>اعتماد مدير الإدارة<small>الاسم / ................ &nbsp; التوقيع / ................</small></div><div>إدارة الحركة<small>التوقيع / ................</small></div></div>
 </body></html>`;
 }
 function custodyXlsx(rows, S){
